@@ -177,21 +177,6 @@ public struct GitHubPullRequestLists: Equatable, Sendable {
     }
 }
 
-/// A branch the person pushed to recently: a likely candidate for a pull request.
-public struct GitHubPush: Equatable, Identifiable, Sendable {
-    public var repoFullName: String
-    public var branch: String
-    public var pushedAt: Date
-
-    public var id: String { "\(repoFullName)@\(branch)" }
-
-    public init(repoFullName: String, branch: String, pushedAt: Date) {
-        self.repoFullName = repoFullName
-        self.branch = branch
-        self.pushedAt = pushedAt
-    }
-}
-
 /// How one branch stands against another.
 public struct GitHubComparison: Equatable, Sendable {
     /// "ahead", "behind", "identical" or "diverged".

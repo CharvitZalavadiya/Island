@@ -20,8 +20,10 @@ protocol GitHubAPI: Sendable {
     func openPullRequest(token: String, _ repo: GitHubRepoRef, head: String, base: String) async throws -> GitHubPullRequest?
     /// The account's open pull requests and the ones waiting on its review, with their review and check status.
     func pullRequestLists(token: String) async throws -> GitHubPullRequestLists
-    /// The branches the account pushed to recently, most recent first.
-    func recentPushes(token: String, login: String) async throws -> [GitHubPush]
+    /// Pull requests found by a search (already worded by `GitHubSearch`), with their review and check status.
+    func searchPullRequests(token: String, query: String) async throws -> [GitHubPullRequest]
+    /// One pull request by its number, or nil if the repository has none with that number.
+    func pullRequest(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> GitHubPullRequest?
 }
 
 /// GitHub over the internet. It uses an ephemeral session, so nothing about a person's repositories is cached on disk.
@@ -113,8 +115,34 @@ final class URLSessionGitHubAPI: GitHubAPI, @unchecked Sendable {
         }
     }
 
-    func recentPushes(token: String, login: String) async throws -> [GitHubPush] {
-        try GitHubDecoding.recentPushes(from: try await send(GitHubRequests.userEvents(token: token, login: login)).data)
+    /// A search with status from GraphQL; if GraphQL cannot be used for a reason that is not about the person, the plain
+    /// search finds the same pull requests without the status.
+    func searchPullRequests(token: String, query: String) async throws -> [GitHubPullRequest] {
+        do {
+            return try GitHubDecoding.pullRequests(fromGraphQLSearch: try await send(GitHubRequests.searchPullRequestsWithStatus(token: token, query: query)).data)
+        } catch let error as GitHubError {
+            switch error {
+            case .unauthorized, .sso, .rateLimited, .network: throw error
+            case .forbidden, .notFound, .validation, .server, .unreadable:
+                return try GitHubDecoding.searchedPullRequests(from: try await send(GitHubRequests.searchPullRequests(token: token, query: query)).data)
+            }
+        }
+    }
+
+    func pullRequest(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> GitHubPullRequest? {
+        do {
+            return try GitHubDecoding.pullRequest(fromGraphQLByNumber: try await send(GitHubRequests.pullRequestWithStatus(token: token, repo, number: number)).data)
+        } catch let error as GitHubError {
+            switch error {
+            case .unauthorized, .sso, .rateLimited, .network: throw error
+            case .forbidden, .notFound, .validation, .server, .unreadable:
+                do {
+                    return try GitHubDecoding.pullRequest(from: try await send(GitHubRequests.pullRequest(token: token, repo, number: number)).data)
+                } catch GitHubError.notFound {
+                    return nil
+                }
+            }
+        }
     }
 
     private func searchedPullRequestLists(token: String) async throws -> GitHubPullRequestLists {

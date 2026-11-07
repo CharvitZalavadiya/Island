@@ -168,6 +168,7 @@ public enum GitHubDecoding {
         var number: Int?
         var title: String?
         var url: String?
+        var state: String?
         var isDraft: Bool?
         var updatedAt: String?
         var mergeable: String?
@@ -187,16 +188,43 @@ public enum GitHubDecoding {
     /// partial answer (some of an organisation's pull requests hidden behind single sign-on) still gives the rest.
     public static func pullRequestLists(fromGraphQL data: Data) throws -> GitHubPullRequestLists {
         guard let response = try? JSONDecoder().decode(GQLResponse.self, from: data) else { throw GitHubError.unreadable }
-        guard let body = response.data, body.mine != nil || body.review != nil else {
-            if let first = response.errors?.first {
-                if first.type == "FORBIDDEN" || first.type == "INSUFFICIENT_SCOPES" { throw GitHubError.forbidden(first.message) }
-                if first.type == "RATE_LIMITED" || first.type == "MAX_NODE_LIMIT_EXCEEDED" { throw GitHubError.rateLimited(until: nil) }
-            }
-            throw GitHubError.unreadable
-        }
+        guard let body = response.data, body.mine != nil || body.review != nil else { throw graphQLError(response.errors) }
         return GitHubPullRequestLists(
             mine: (body.mine?.nodes ?? []).compactMap { $0.flatMap(graphQLPull) },
             review: (body.review?.nodes ?? []).compactMap { $0.flatMap(graphQLPull) })
+    }
+
+    private struct GQLSearchData: Decodable { var results: GQLNodes? }
+    private struct GQLSearchResponse: Decodable { var data: GQLSearchData?; var errors: [GQLError]? }
+    private struct GQLRepositoryData: Decodable { var repository: GQLRepositoryPull? }
+    private struct GQLRepositoryPull: Decodable { var pullRequest: GQLPull? }
+    private struct GQLByNumberResponse: Decodable { var data: GQLRepositoryData?; var errors: [GQLError]? }
+
+    /// The pull requests a GraphQL search found (the answer to the `PullRequestSearch` query).
+    public static func pullRequests(fromGraphQLSearch data: Data) throws -> [GitHubPullRequest] {
+        guard let response = try? JSONDecoder().decode(GQLSearchResponse.self, from: data) else { throw GitHubError.unreadable }
+        guard let nodes = response.data?.results?.nodes else { throw graphQLError(response.errors) }
+        return nodes.compactMap { $0.flatMap(graphQLPull) }
+    }
+
+    /// One pull request by its number (the answer to `PullRequestByNumber`); nil when the repository has no such number.
+    public static func pullRequest(fromGraphQLByNumber data: Data) throws -> GitHubPullRequest? {
+        guard let response = try? JSONDecoder().decode(GQLByNumberResponse.self, from: data) else { throw GitHubError.unreadable }
+        guard let repository = response.data?.repository else {
+            // A repository that does not exist (or cannot be seen) comes back as an error and no data.
+            if response.errors?.contains(where: { $0.type == "NOT_FOUND" }) == true { return nil }
+            throw graphQLError(response.errors)
+        }
+        return repository.pullRequest.flatMap(graphQLPull)   // null: no such pull request
+    }
+
+    /// What a GraphQL answer with no usable data means.
+    private static func graphQLError(_ errors: [GQLError]?) -> GitHubError {
+        if let first = errors?.first {
+            if first.type == "FORBIDDEN" || first.type == "INSUFFICIENT_SCOPES" { return .forbidden(first.message) }
+            if first.type == "RATE_LIMITED" || first.type == "MAX_NODE_LIMIT_EXCEEDED" { return .rateLimited(until: nil) }
+        }
+        return .unreadable
     }
 
     private static func graphQLPull(_ wire: GQLPull) -> GitHubPullRequest? {
@@ -216,49 +244,18 @@ public enum GitHubDecoding {
         case "REVIEW_REQUIRED": .required
         default: nil
         }
+        let state: GitHubPullRequest.State = switch wire.state {
+        case "MERGED": .merged
+        case "CLOSED": .closed
+        default: .open
+        }
         return GitHubPullRequest(
-            number: number, title: title, url: url, isDraft: wire.isDraft ?? false, state: .open, repoFullName: repo,
+            number: number, title: title, url: url, isDraft: wire.isDraft ?? false, state: state, repoFullName: repo,
             authorLogin: wire.author?.login, headBranch: wire.headRefName, baseBranch: wire.baseRefName,
             updatedAt: wire.updatedAt.flatMap(date), checks: checks, review: review, hasConflicts: wire.mergeable == "CONFLICTING")
     }
 
-    // MARK: Recent pushes (events)
-
-    private struct WireEventRepo: Decodable { var name: String? }
-    private struct WireEventPayload: Decodable {
-        var ref: String?
-        var refType: String?
-        enum CodingKeys: String, CodingKey { case ref, refType = "ref_type" }
-    }
-    private struct WireEvent: Decodable {
-        var type: String?
-        var repo: WireEventRepo?
-        var payload: WireEventPayload?
-        var createdAt: String?
-        enum CodingKeys: String, CodingKey { case type, repo, payload, createdAt = "created_at" }
-    }
-
-    /// The branches the person pushed to, most recent first, one entry per branch. A branch that was deleted after the
-    /// push is left out (the events come newest first, so a delete seen before a push is a delete that came after it), and
-    /// so are tags.
-    public static func recentPushes(from data: Data) throws -> [GitHubPush] {
-        guard let events = try? JSONDecoder().decode([WireEvent].self, from: data) else { throw GitHubError.unreadable }
-        var deleted = Set<String>()
-        var seen = Set<String>()
-        var pushes: [GitHubPush] = []
-        for event in events {
-            guard let repo = event.repo?.name, let ref = event.payload?.ref else { continue }
-            if event.type == "DeleteEvent", event.payload?.refType == "branch" {
-                deleted.insert("\(repo)@\(ref)")
-            } else if event.type == "PushEvent", ref.hasPrefix("refs/heads/"), let stamp = event.createdAt.flatMap(date) {
-                let branch = String(ref.dropFirst("refs/heads/".count))
-                let key = "\(repo)@\(branch)"
-                guard !deleted.contains(key), seen.insert(key).inserted else { continue }
-                pushes.append(GitHubPush(repoFullName: repo, branch: branch, pushedAt: stamp))
-            }
-        }
-        return pushes
-    }
+    // MARK: Errors and paging
 
     /// What an error answer says: its message plus the details of each thing wrong, in one sentence.
     public static func errorMessage(from data: Data) -> String? {

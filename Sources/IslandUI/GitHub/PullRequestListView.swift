@@ -48,7 +48,7 @@ struct PullRequestRow: View {
     var body: some View {
         HStack(spacing: 10) {
             // The icon's colour is the state of its checks: green, red while failing, yellow while running; grey for a draft.
-            Image(systemName: "arrow.triangle.pull")
+            Image(systemName: pullRequest.state == .merged ? "arrow.triangle.merge" : "arrow.triangle.pull")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(iconColor)
                 .frame(width: 20)
@@ -57,9 +57,11 @@ struct PullRequestRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(pullRequest.title).font(.system(size: 13, weight: .medium)).lineLimit(2)
                 HStack(spacing: 6) {
-                    Text("\(pullRequest.repoFullName) #\(pullRequest.number)").lineLimit(1).truncationMode(.middle)
+                    Text(verbatim: "\(pullRequest.repoFullName) #\(pullRequest.number)").lineLimit(1).truncationMode(.middle)
                     if showsAuthor, let author = pullRequest.authorLogin { Text("· \(author)").lineLimit(1) }
                     if let updated = pullRequest.updatedAt { Text("· \(Self.relative(updated))").lineLimit(1).fixedSize() }
+                    if pullRequest.state == .merged { badge("Merged", color: IslandTheme.github, fill: IslandTheme.github.opacity(0.2)) }
+                    if pullRequest.state == .closed { badge("Closed", color: IslandTheme.danger, fill: IslandTheme.danger.opacity(0.18)) }
                     if pullRequest.isDraft { badge("Draft", color: .white.opacity(0.7), fill: Color.white.opacity(0.14)) }
                     if pullRequest.hasConflicts { badge("Conflicts", color: IslandTheme.danger, fill: IslandTheme.danger.opacity(0.18)) }
                     switch pullRequest.review {
@@ -115,6 +117,8 @@ struct PullRequestRow: View {
     }
 
     private var iconColor: Color {
+        if pullRequest.state == .merged { return IslandTheme.github }
+        if pullRequest.state == .closed { return IslandTheme.danger.opacity(0.8) }
         if pullRequest.isDraft { return Color.white.opacity(0.45) }
         switch pullRequest.checks {
         case .failing: return IslandTheme.danger
@@ -128,7 +132,7 @@ struct PullRequestRow: View {
         case .passing: "Checks are passing"
         case .failing: "Checks are failing"
         case .pending: "Checks are running"
-        case nil: pullRequest.isDraft ? "Draft" : "No checks"
+        case nil: pullRequest.state == .merged ? "Merged" : (pullRequest.state == .closed ? "Closed" : (pullRequest.isDraft ? "Draft" : "No checks"))
         }
     }
 

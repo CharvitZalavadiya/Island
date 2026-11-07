@@ -68,31 +68,22 @@ public enum GitHubRequests {
         get("/search/issues", token: token, query: [("q", query), ("sort", "updated"), ("order", "desc"), ("per_page", String(limit))])
     }
 
-    /// The events the account itself caused (its pushes, mostly), newest first, private ones included.
-    public static func userEvents(token: String, login: String) -> URLRequest {
-        get("/users/\(login)/events", token: token, query: [("per_page", "100")])
-    }
-
     /// One GraphQL call that gets both lists with their review and check status. (The same search qualifiers as the
     /// `*Query` strings below, newest first.)
     public static func pullRequestLists(token: String) -> URLRequest {
-        var request = request("/graphql", token: token, query: [])
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let payload: [String: Any] = [
-            "query": pullRequestListsQuery,
-            "variables": ["mine": myOpenPullRequestsQuery + " sort:updated-desc", "review": reviewRequestedQuery + " sort:updated-desc"],
-        ]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-        return request
+        graphQL(token: token, query: pullRequestListsQuery, variables: [
+            "mine": myOpenPullRequestsQuery + " sort:updated-desc", "review": reviewRequestedQuery + " sort:updated-desc",
+        ])
     }
 
-    /// Checked against GitHub's published GraphQL schema (every field and enum exists).
-    public static let pullRequestListsQuery = """
+    /// The fields every pull request list asks for. (All the queries below are checked against GitHub's published GraphQL
+    /// schema: every field and enum value exists.)
+    static let pullRequestFieldsFragment = """
         fragment PullRequestFields on PullRequest {
           number
           title
           url
+          state
           isDraft
           updatedAt
           mergeable
@@ -103,12 +94,55 @@ public enum GitHubRequests {
           author { login }
           commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
         }
+        """
+
+    public static let pullRequestListsQuery = pullRequestFieldsFragment + """
+
 
         query PullRequestLists($mine: String!, $review: String!) {
           mine: search(query: $mine, type: ISSUE, first: 50) { nodes { ...PullRequestFields } }
           review: search(query: $review, type: ISSUE, first: 50) { nodes { ...PullRequestFields } }
         }
         """
+
+    public static let pullRequestSearchQuery = pullRequestFieldsFragment + """
+
+
+        query PullRequestSearch($query: String!) {
+          results: search(query: $query, type: ISSUE, first: 30) { nodes { ...PullRequestFields } }
+        }
+        """
+
+    public static let pullRequestByNumberQuery = pullRequestFieldsFragment + """
+
+
+        query PullRequestByNumber($owner: String!, $name: String!, $number: Int!) {
+          repository(owner: $owner, name: $name) { pullRequest(number: $number) { ...PullRequestFields } }
+        }
+        """
+
+    /// Pull requests matching a search (already worded by `GitHubSearch`), with their review and check status.
+    public static func searchPullRequestsWithStatus(token: String, query: String) -> URLRequest {
+        graphQL(token: token, query: pullRequestSearchQuery, variables: ["query": query])
+    }
+
+    /// One pull request by its number, with its review and check status.
+    public static func pullRequestWithStatus(token: String, _ repo: GitHubRepoRef, number: Int) -> URLRequest {
+        graphQL(token: token, query: pullRequestByNumberQuery, variables: ["owner": repo.owner, "name": repo.name, "number": number])
+    }
+
+    /// One pull request by its number, without the status (what to use if GraphQL cannot be).
+    public static func pullRequest(token: String, _ repo: GitHubRepoRef, number: Int) -> URLRequest {
+        get("/repos/\(repo.owner)/\(repo.name)/pulls/\(number)", token: token)
+    }
+
+    private static func graphQL(token: String, query: String, variables: [String: Any]) -> URLRequest {
+        var request = request("/graphql", token: token, query: [])
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": query, "variables": variables], options: [.sortedKeys])
+        return request
+    }
 
     /// What to search for to find the pull requests the account opened that are still open.
     public static let myOpenPullRequestsQuery = "is:pr is:open author:@me archived:false"

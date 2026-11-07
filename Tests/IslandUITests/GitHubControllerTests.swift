@@ -27,9 +27,12 @@ private final class FakeGitHub: GitHubAPI, @unchecked Sendable {
     var createFailure: Error?
     var lookupFailure: Error?
     var templateFails = false
-    var pushes: [GitHubPush] = []
-    /// Thrown by the recent-pushes call only.
-    var pushesFailure: Error?
+    /// What a search finds (by its exact query), else `searchDefault`.
+    var searchAnswers: [String: [GitHubPullRequest]] = [:]
+    var searchDefault: [GitHubPullRequest] = []
+    var numbered: [Int: GitHubPullRequest] = [:]
+    /// Holds every search until released, so a test can make an answer arrive late.
+    var searchGate: SearchGate?
     /// Waits (once) in `compare` for the head named, so a test can make an answer arrive late.
     var compareGate: (head: String, wait: @Sendable () async -> Void)?
 
@@ -74,11 +77,30 @@ private final class FakeGitHub: GitHubAPI, @unchecked Sendable {
         record("lists"); try check()
         return GitHubPullRequestLists(mine: mine, review: review)
     }
-    func recentPushes(token: String, login: String) async throws -> [GitHubPush] {
-        record("pushes:\(login)")
+    func searchPullRequests(token: String, query: String) async throws -> [GitHubPullRequest] {
+        record("search:\(query)")
         try check()
-        if let pushesFailure { throw pushesFailure }
-        return pushes
+        if let searchGate { await searchGate.wait() }
+        return searchAnswers[query] ?? searchDefault
+    }
+    func pullRequest(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> GitHubPullRequest? {
+        record("pr:\(repo.fullName)#\(number)")
+        try check()
+        return numbered[number]
+    }
+}
+
+private actor SearchGate {
+    private var opened = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    func open() {
+        opened = true
+        waiting.forEach { $0.resume() }
+        waiting = []
     }
 }
 
@@ -429,8 +451,13 @@ private func pull(_ number: Int, _ title: String, repo: String = "acme/app") -> 
     let pr = pull(42, "Add login")
     controller.copyLink(of: pr)
     #expect(clipboard.copied == ["https://github.com/acme/app/pull/42"] && controller.copiedID == pr.id)
-    try? await Task.sleep(nanoseconds: 400_000_000)
-    #expect(controller.copiedID == nil)                                             // the "Copied" fades again
+    // The "Copied" fades again (waited for, not slept for: a busy machine can delay the timer).
+    var faded = false
+    for _ in 0..<300 where !faded {
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        faded = controller.copiedID == nil
+    }
+    #expect(faded)
     controller.copyMarkdown(of: pr)
     #expect(clipboard.copied.last == "[acme/app#42 Add login](https://github.com/acme/app/pull/42)")
 }
@@ -449,103 +476,6 @@ private actor Gate {
     }
 }
 
-
-// MARK: Suggestions: branches pushed lately
-
-private func push(_ repo: String, _ branch: String, hoursAgo: Double = 2) -> GitHubPush {
-    GitHubPush(repoFullName: repo, branch: branch, pushedAt: clock.addingTimeInterval(-hoursAgo * 3600))
-}
-
-@Test @MainActor func recentPushesAreOfferedAsSuggestionsWhenTheTabOpens() async {
-    let api = FakeGitHub()
-    api.pushes = [push("acme/app", "feature/login")]
-    let (controller, _, _, _) = await connected(api)
-    #expect(api.calls.contains("pushes:octocat"))                       // asked for the account's own events
-    #expect(controller.suggestions.map(\.id) == ["acme/app@feature/login"])
-}
-
-@Test @MainActor func suggestionsLeaveOutWhatCannotOrNeedNotBeOpened() async {
-    let api = FakeGitHub()
-    api.mine = [GitHubPullRequest(number: 9, title: "Already open", url: URL(string: "https://github.com/acme/app/pull/9")!, repoFullName: "acme/app", headBranch: "feature/done")]
-    api.pushes = [
-        push("acme/app", "feature/login"),              // offered
-        push("acme/app", "main"),                       // the repository's own main branch
-        push("acme/app", "feature/done"),               // already has an open pull request
-        push("acme/old", "feature/x"),                  // archived repository
-        push("acme/readonly", "feature/y"),             // read-only repository
-        push("somewhere/else", "develop"),              // unknown repository, a usual main-branch name
-        push("somewhere/else", "fix/crash"),            // unknown repository, a real branch: offered
-        push("acme/app", "feature/stale", hoursAgo: 24 * 15),   // too old
-        push("octocat/blog", "master"),                 // that repository's default branch is master
-        push("octocat/blog", "post/new-theme"),         // offered
-    ]
-    let (controller, _, _, _) = await connected(api)
-    #expect(controller.suggestions.map(\.id) == ["acme/app@feature/login", "somewhere/else@fix/crash", "octocat/blog@post/new-theme"])
-}
-
-@Test @MainActor func atMostFiveSuggestionsAreShown() async {
-    let api = FakeGitHub()
-    api.pushes = (1...9).map { push("acme/app", "feature/b\($0)", hoursAgo: Double($0)) }
-    let (controller, _, _, _) = await connected(api)
-    #expect(controller.suggestions.count == 5 && controller.suggestions.first?.branch == "feature/b1")
-}
-
-@Test @MainActor func suggestionsForTheChosenRepositoryAreFound() async {
-    let api = FakeGitHub()
-    api.pushes = [push("acme/app", "feature/login"), push("octocat/blog", "post/new-theme")]
-    let (controller, _, _, _) = await connected(api)
-    #expect(controller.suggestions(for: controller.repos[0]).map(\.branch) == ["feature/login"])     // acme/app
-    #expect(controller.suggestions(for: controller.repos[3]).map(\.branch) == ["post/new-theme"])    // octocat/blog
-}
-
-@Test @MainActor func tappingASuggestionChoosesTheRepositoryAndTheBranchAtOnce() async {
-    let api = FakeGitHub()
-    api.pushes = [push("acme/app", "feature/login")]
-    let (controller, _, _, _) = await connected(api)
-    await controller.selectSuggestion(controller.suggestions[0])
-    #expect(controller.repo?.fullName == "acme/app" && controller.head == "feature/login" && controller.base == "main")
-    #expect(controller.canCreate && controller.title == "Login")                // compared, and the title filled in
-}
-
-@Test @MainActor func aSuggestionInAnUnlistedRepositoryIsLookedUpFirst() async {
-    let api = FakeGitHub()
-    api.repoList.append(GitHubRepo(id: 9, fullName: "far/away", owner: "far", name: "away", defaultBranch: "main"))
-    api.pushes = [push("far/away", "feature/z")]
-    let (controller, _, _, _) = await connected(api)
-    // Pretend the repository list was too short to include it.
-    await controller.selectSuggestion(controller.suggestions[0])
-    #expect(controller.repo?.fullName == "far/away" && controller.head == "feature/z")
-}
-
-@Test @MainActor func aSuggestionInARepositoryThatCannotTakePullRequestsPicksNoBranch() async {
-    let api = FakeGitHub()
-    let (controller, _, _, _) = await connected(api)
-    await controller.selectSuggestion(push("acme/readonly", "feature/y"))
-    #expect(controller.repo == nil && controller.head == nil && controller.message?.text.contains("don't have write access") == true)
-}
-
-@Test @MainActor func creatingAPullRequestTakesItsBranchOutOfTheSuggestions() async {
-    let api = FakeGitHub()
-    api.pushes = [push("acme/app", "feature/login"), push("acme/app", "fix/other")]
-    let (controller, _, _, _) = await connected(api)
-    await controller.selectSuggestion(controller.suggestions[0])
-    // GitHub will now list the new pull request among the person's own.
-    api.mine = [GitHubPullRequest(number: 42, title: "Login", url: URL(string: "https://github.com/acme/app/pull/42")!, repoFullName: "acme/app", headBranch: "feature/login")]
-    await controller.createPullRequest()
-    #expect(controller.suggestions.map(\.branch) == ["fix/other"])
-}
-
-@Test @MainActor func suggestionsAreANicetyThatNeverShowsAnError() async {
-    let api = FakeGitHub()
-    api.pushesFailure = GitHubError.server(500)
-    let (controller, _, _, _) = await connected(api)
-    #expect(controller.suggestions.isEmpty && controller.message == nil && controller.connection == .connected)
-
-    let revoked = FakeGitHub()
-    revoked.pushesFailure = GitHubError.unauthorized
-    let (second, _, tokens, _) = await connected(revoked)
-    #expect(second.connection == .disconnected && tokens.stored == nil)       // a revoked token is still noticed
-}
 
 // MARK: The status of the lists
 
@@ -567,4 +497,125 @@ private func push(_ repo: String, _ branch: String, hoursAgo: Double = 2) -> Git
     let made = make(tokens: FakeTokens(stored: "tok"), clipboard: clipboard)
     made.0.copyTitleAndLink(of: pull(5, "Add login"))
     #expect(clipboard.copied == ["Add login\nhttps://github.com/acme/app/pull/5"])
+}
+
+
+// MARK: Searching a repository's pull requests
+
+@Test @MainActor func theSearchRepositoryCanBeAnyRepositoryYouCanSeeNotOnlyOnesYouCanPushTo() async {
+    let (controller, _, _, _) = await connected()
+    #expect(controller.searchableRepos(matching: "").map(\.fullName) == ["acme/app", "acme/old", "acme/readonly", "octocat/blog"])
+    #expect(controller.searchableRepos(matching: "READ").map(\.fullName) == ["acme/readonly"])
+    #expect(controller.pickableRepos(matching: "").count == 2)                              // a new pull request is stricter
+}
+
+@Test @MainActor func searchingStartsInTheRepositoryTheNewPullRequestIsFor() async {
+    let (controller, _, _, _) = await withRepo()
+    controller.section = .search
+    await controller.loadForCurrentSection()
+    #expect(controller.searchRepo?.fullName == "acme/app")
+    // From here the two are independent: choosing another repository to search leaves the new pull request alone.
+    controller.selectSearchRepo(controller.repos[3])
+    #expect(controller.searchRepo?.fullName == "octocat/blog" && controller.repo?.fullName == "acme/app")
+}
+
+@Test @MainActor func aSearchAsksGitHubForExactlyTheWordedQuery() async {
+    let api = FakeGitHub()
+    let wanted = "repo:acme/app is:pr is:open login sort:updated-desc"
+    api.searchAnswers[wanted] = [pull(5, "Add login")]
+    let (controller, _, _, _) = await withRepo(api)
+    controller.selectSearchRepo(controller.repos[0])
+    await controller.search("login")
+    #expect(api.calls.contains("search:\(wanted)") && controller.searchResults.map(\.number) == [5] && controller.searchLoaded)
+
+    controller.searchOpenOnly = false                                                    // include closed and merged
+    await controller.search("@ravi")
+    #expect(api.calls.contains("search:repo:acme/app is:pr author:ravi sort:updated-desc"))
+}
+
+@Test @MainActor func aNumberOrALinkFindsThatOnePullRequest() async {
+    let api = FakeGitHub()
+    api.numbered[482] = pull(482, "Friend's change")
+    let (controller, _, _, _) = await withRepo(api)
+    controller.selectSearchRepo(controller.repos[0])
+    await controller.search("#482")
+    #expect(api.calls.contains("pr:acme/app#482") && controller.searchResults.map(\.number) == [482])
+    await controller.search("https://github.com/acme/app/pull/482")
+    #expect(controller.searchResults.map(\.number) == [482])
+    await controller.search("999")                                                       // there is no such number here
+    #expect(controller.searchResults.isEmpty && controller.searchLoaded && controller.message == nil)
+}
+
+@Test @MainActor func aLateSearchAnswerIsIgnoredWhenTheRepositoryChangedMeanwhile() async {
+    let api = FakeGitHub()
+    api.searchDefault = [pull(1, "From the first repository")]
+    let release = SearchGate()
+    api.searchGate = release
+    let (controller, _, _, _) = await withRepo(api)
+    controller.selectSearchRepo(controller.repos[0])
+    let slow = Task { await controller.search("") }
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    controller.selectSearchRepo(controller.repos[3])                                     // the person moved on
+    await release.open()
+    await slow.value
+    #expect(controller.searchRepo?.fullName == "octocat/blog" && controller.searchResults.isEmpty)
+}
+
+@Test @MainActor func aTypedRepositoryCanBeSearchedEvenWithoutWriteAccess() async {
+    let (controller, _, _, _) = await connected()
+    await controller.selectSearchRepo(typed: "https://github.com/acme/readonly/pull/3")
+    #expect(controller.searchRepo?.fullName == "acme/readonly" && controller.message == nil)   // read-only is fine for looking
+    await controller.selectSearchRepo(typed: "acme/nothing-here")
+    #expect(controller.message?.text == "GitHub can't find acme/nothing-here, or your token can't see it.")
+    await controller.selectSearchRepo(typed: "not a repo")
+    #expect(controller.message?.text == "Type a repository as owner/name, or paste its link.")
+}
+
+@Test @MainActor func aFailedSearchSaysSoAndKeepsTheResults() async {
+    let api = FakeGitHub()
+    api.searchDefault = [pull(1, "Found")]
+    let (controller, _, _, _) = await withRepo(api)
+    controller.selectSearchRepo(controller.repos[0])
+    await controller.search("")
+    api.failure = GitHubError.network("offline")
+    await controller.search("anything")
+    #expect(controller.searchResults.count == 1 && controller.message?.text == "Couldn't reach GitHub, so Island couldn't search.")
+    #expect(!controller.isSearching)
+}
+
+@Test @MainActor func clearingTheSearchRepositoryEmptiesTheSearch() async {
+    let api = FakeGitHub()
+    api.searchDefault = [pull(1, "Found")]
+    let (controller, _, _, _) = await withRepo(api)
+    controller.selectSearchRepo(controller.repos[0])
+    await controller.search("")
+    controller.clearSearchRepo()
+    #expect(controller.searchRepo == nil && controller.searchResults.isEmpty && !controller.searchLoaded)
+}
+
+@Test @MainActor func disconnectingForgetsTheSearchToo() async {
+    let api = FakeGitHub()
+    api.searchDefault = [pull(1, "Found")]
+    let (controller, _, _, _) = await withRepo(api)
+    controller.selectSearchRepo(controller.repos[0])
+    await controller.search("")
+    controller.disconnect()
+    #expect(controller.searchRepo == nil && controller.searchResults.isEmpty)
+}
+
+// MARK: Starting over
+
+@Test @MainActor func startingOverGoesBackToTheBeginning() async {
+    let (controller, _, _, _) = await withRepo()
+    await controller.selectHead("feature/login")
+    controller.setTitle("My own title")
+    controller.isDraft = true
+    controller.resetForm()
+    #expect(controller.repo == nil && controller.base == nil && controller.head == nil && controller.branches.isEmpty)
+    #expect(controller.title.isEmpty && controller.body.isEmpty && !controller.isDraft && controller.comparison == .none)
+    #expect(controller.creation == .idle && controller.message == nil && !controller.canCreate)
+    // And the repositories are still there to choose from again.
+    #expect(controller.pickableRepos(matching: "").count == 2)
+    await controller.selectRepo(controller.repos[3])
+    #expect(controller.repo?.fullName == "octocat/blog" && controller.base == "master")
 }

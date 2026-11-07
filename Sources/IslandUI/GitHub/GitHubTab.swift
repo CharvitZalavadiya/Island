@@ -3,8 +3,8 @@ import SwiftUI
 import IslandCore
 
 /// The GitHub tab: connect an account, open a pull request in any repository the account can push to (any base branch,
-/// any branch to merge), copy its link to send to someone, and look at your own open pull requests and the ones waiting
-/// for your review.
+/// any branch to merge), copy its link to send to someone, look at your own open pull requests and the ones waiting for
+/// your review, and search any repository's pull requests (to find a colleague's, say).
 struct GitHubTab: View {
     @Bindable var controller: GitHubController
 
@@ -42,6 +42,8 @@ struct GitHubTab: View {
                 PullRequestListView(
                     controller: controller, pullRequests: controller.reviewRequests,
                     emptyText: "Nobody is waiting on your review.", showsAuthor: true)
+            case .search:
+                SearchPullRequestsView(controller: controller)
             }
         }
     }
@@ -54,6 +56,7 @@ struct GitHubTab: View {
                     (.newPullRequest, "New PR"),
                     (.mine, controller.myPullRequests.isEmpty ? "My PRs" : "My PRs \(controller.myPullRequests.count)"),
                     (.reviewRequests, controller.reviewRequests.isEmpty ? "Reviews" : "Reviews \(controller.reviewRequests.count)"),
+                    (.search, "Search"),
                 ],
                 tint: IslandTheme.github)
             Spacer(minLength: 4)

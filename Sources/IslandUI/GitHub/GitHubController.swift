@@ -25,6 +25,7 @@ final class GitHubController {
         case newPullRequest
         case mine
         case reviewRequests
+        case search
     }
 
     enum Comparison: Equatable {
@@ -84,9 +85,15 @@ final class GitHubController {
     private(set) var listsLoaded = false
     private(set) var listsLoading = false
 
-    /// The branches the person pushed to recently (what `suggestions` is made from).
-    private(set) var recentPushes: [GitHubPush] = []
-    @ObservationIgnored private var pushesLoading = false
+    // Searching one repository's pull requests (its repository is chosen separately from the New PR form's)
+    private(set) var searchRepo: GitHubRepo?
+    /// Search only the open ones, or every one (closed and merged too).
+    var searchOpenOnly = true
+    private(set) var searchResults: [GitHubPullRequest] = []
+    private(set) var isSearching = false
+    /// True once a search has answered for the current repository.
+    private(set) var searchLoaded = false
+    @ObservationIgnored private var searchGeneration = 0
 
     /// The pull request whose link was just copied (the button says "Copied" for a moment).
     private(set) var copiedID: String?
@@ -144,32 +151,6 @@ final class GitHubController {
             }
     }
 
-    /// How long a push stays worth suggesting.
-    static let suggestionDays = 14.0
-    static let maxSuggestions = 5
-
-    /// Branches the person pushed to lately that are likely ready for a pull request: not a repository's main branch, not
-    /// one that already has an open pull request from the person, not in a repository a pull request cannot start from,
-    /// and recent. Most recent first.
-    var suggestions: [GitHubPush] {
-        let cutoff = now().addingTimeInterval(-Self.suggestionDays * 86_400)
-        let opened = Set(myPullRequests.compactMap { pull in pull.headBranch.map { "\(pull.repoFullName.lowercased())@\($0)" } })
-        let usual: Set<String> = ["main", "master", "develop", "dev", "trunk"]
-        return recentPushes.filter { push in
-            guard push.pushedAt >= cutoff, !opened.contains("\(push.repoFullName.lowercased())@\(push.branch)") else { return false }
-            if let known = repos.first(where: { $0.fullName.lowercased() == push.repoFullName.lowercased() }) {
-                return known.canTakePullRequests && push.branch != known.defaultBranch
-            }
-            return !usual.contains(push.branch)   // a repository not in the list: the usual main branch names are skipped
-        }
-        .prefix(Self.maxSuggestions).map { $0 }
-    }
-
-    /// The suggestions that belong to one repository.
-    func suggestions(for repo: GitHubRepo) -> [GitHubPush] {
-        suggestions.filter { $0.repoFullName.lowercased() == repo.fullName.lowercased() }
-    }
-
     var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     /// Whether Create can be pressed: a repository, two different branches, a title, and nothing under way.
@@ -203,14 +184,16 @@ final class GitHubController {
     func loadForCurrentSection() async {
         switch section {
         case .newPullRequest:
-            // The repositories, the person's open pull requests (so a branch that has one is not suggested) and the recent
-            // pushes load side by side.
+            // The repositories to choose from, and the person's own pull requests (their counts show in the header).
             async let repositories: Void = loadRepos()
             async let pullRequests: Void = loadListsIfNeeded()
-            async let pushes: Void = loadSuggestions()
-            _ = await (repositories, pullRequests, pushes)
+            _ = await (repositories, pullRequests)
         case .mine, .reviewRequests:
             await refreshLists()
+        case .search:
+            await loadRepos()
+            // Searching starts in the repository the new pull request is for, if one was chosen.
+            if searchRepo == nil, let repo { selectSearchRepo(repo) }
         }
     }
 
@@ -331,20 +314,23 @@ final class GitHubController {
         return "\(repo.fullName) isn't taking pull requests."
     }
 
-    /// A branch from the suggestions: its repository and the branch are chosen in one go.
-    func selectSuggestion(_ push: GitHubPush) async {
-        if let known = repos.first(where: { $0.fullName.lowercased() == push.repoFullName.lowercased() }) {
-            guard known.canTakePullRequests else {
-                message = Message(text: Self.cannotTakePullRequests(known), isError: true)
-                return
-            }
-            await selectRepo(known)
-        } else {
-            await selectRepo(typed: push.repoFullName)
-        }
-        // If the repository could not be chosen (it is read-only, say) the message says why and no branch is picked.
-        guard repo?.fullName.lowercased() == push.repoFullName.lowercased() else { return }
-        await selectHead(push.branch)
+    /// Back to the beginning: no repository, no branches, nothing typed.
+    func resetForm() {
+        choiceGeneration += 1
+        repo = nil
+        base = nil
+        head = nil
+        branches = []
+        branchesLoading = false
+        title = ""
+        body = ""
+        titleEdited = false
+        bodyEdited = false
+        isDraft = false
+        comparison = .none
+        existingPullRequest = nil
+        creation = .idle
+        message = nil
     }
 
     func selectBase(_ name: String) async {
@@ -477,18 +463,77 @@ final class GitHubController {
         if !listsLoaded { await refreshLists() }
     }
 
-    /// The recent pushes. A nicety: if they cannot be loaded there are simply no suggestions, with no message about it.
-    func loadSuggestions() async {
-        guard connection == .connected, let token, let login = account?.login, !pushesLoading, now() >= pausedUntil else { return }
-        pushesLoading = true
-        defer { pushesLoading = false }
+    // MARK: Searching a repository's pull requests
+
+    /// Every repository the account can reach that can hold pull requests to look at (a read-only one can be searched
+    /// too, unlike one a new pull request can start from), matching what was typed.
+    func searchableRepos(matching query: String) -> [GitHubRepo] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return repos.filter { !$0.isDisabled && (needle.isEmpty || $0.fullName.lowercased().contains(needle)) }
+    }
+
+    func selectSearchRepo(_ chosen: GitHubRepo) {
+        searchGeneration += 1
+        searchRepo = chosen
+        searchResults = []
+        searchLoaded = false
+        isSearching = false
+    }
+
+    /// A repository typed or pasted in for searching.
+    func selectSearchRepo(typed text: String) async {
+        guard connection == .connected, let token, let reference = GitHubRepoRef.parse(text) else {
+            message = Message(text: "Type a repository as owner/name, or paste its link.", isError: true)
+            return
+        }
+        isLookingUp = true
+        defer { isLookingUp = false }
         do {
-            recentPushes = try await api.recentPushes(token: token, login: login)
-        } catch is CancellationError {
-        } catch GitHubError.unauthorized {
-            handle(GitHubError.unauthorized, doing: nil)
+            let found = try await api.repo(token: token, reference)
+            guard !found.isDisabled else {
+                message = Message(text: "\(found.fullName) is disabled.", isError: true)
+                return
+            }
+            if !repos.contains(where: { $0.id == found.id }) { repos.insert(found, at: 0) }
+            selectSearchRepo(found)
         } catch {
-            // Not worth bothering the person with.
+            handle(error, doing: "look up \(reference.fullName)", notFound: "GitHub can't find \(reference.fullName), or your token can't see it.")
+        }
+    }
+
+    func clearSearchRepo() {
+        searchGeneration += 1
+        searchRepo = nil
+        searchResults = []
+        searchLoaded = false
+        isSearching = false
+    }
+
+    /// Looks for pull requests in the search repository. A number or a link names one pull request; `@name` means the ones
+    /// that person opened; nothing at all lists the latest. See `GitHubSearch`.
+    func search(_ text: String) async {
+        guard connection == .connected, let token, let repo = searchRepo, now() >= pausedUntil else { return }
+        searchGeneration += 1
+        let generation = searchGeneration
+        isSearching = true
+        do {
+            let found: [GitHubPullRequest]
+            switch GitHubSearch.plan(for: text, in: repo.reference, openOnly: searchOpenOnly) {
+            case .number(let number):
+                found = try await api.pullRequest(token: token, repo.reference, number: number).map { [$0] } ?? []
+            case .search(let query):
+                found = try await api.searchPullRequests(token: token, query: query)
+            }
+            guard generation == searchGeneration else { return }   // the person has typed something newer since
+            searchResults = found
+            searchLoaded = true
+            isSearching = false
+        } catch is CancellationError {
+            if generation == searchGeneration { isSearching = false }
+        } catch {
+            guard generation == searchGeneration else { return }
+            isSearching = false
+            handle(error, doing: "search", notFound: "GitHub can't find that repository, or your token can't see it.")
         }
     }
 
@@ -548,7 +593,11 @@ final class GitHubController {
         reviewRequests = []
         listsLoaded = false
         listsLoading = false
-        recentPushes = []
+        searchRepo = nil
+        searchResults = []
+        searchLoaded = false
+        isSearching = false
+        searchGeneration += 1
         copiedID = nil
         pausedUntil = .distantPast
         choiceGeneration += 1

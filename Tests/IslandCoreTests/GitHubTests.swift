@@ -276,39 +276,6 @@ private let graphQLAnswer = """
     #expect(String(data: request.httpBody ?? Data(), encoding: .utf8)?.contains("ghp_secret") == false)
 }
 
-// MARK: Recent pushes
-
-// Trimmed copies of real events from api.github.com (a public account), plus the delete event shape GitHub really sends.
-private let realEvents = """
-[
- {"type": "PushEvent", "repo": {"name": "sindresorhus/type-fest"}, "payload": {"ref": "refs/heads/main", "head": "2e1d2cd0", "before": "aaaa"}, "created_at": "2026-11-06T07:57:00Z"},
- {"type": "PushEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "refs/heads/feature/login", "head": "1"}, "created_at": "2026-11-06T07:00:00Z"},
- {"type": "DeleteEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "old-branch", "ref_type": "branch", "full_ref": "refs/heads/old-branch", "pusher_type": "user"}, "created_at": "2026-11-05T12:00:00Z"},
- {"type": "PushEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "refs/heads/old-branch", "head": "2"}, "created_at": "2026-11-05T09:00:00Z"},
- {"type": "PushEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "refs/heads/feature/login", "head": "3"}, "created_at": "2026-11-04T09:00:00Z"},
- {"type": "PushEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "refs/tags/v1.0", "head": "4"}, "created_at": "2026-11-03T09:00:00Z"},
- {"type": "IssuesEvent", "repo": {"name": "acme/app"}, "payload": {"action": "opened"}, "created_at": "2026-11-03T08:00:00Z"},
- {"type": "PushEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "refs/heads/revived"}, "created_at": "2026-11-02T09:00:00Z"},
- {"type": "DeleteEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "revived", "ref_type": "branch"}, "created_at": "2026-11-01T09:00:00Z"}
-]
-"""
-
-@Test func recentPushesAreTheBranchesPushedMostRecentlyOnePerBranch() throws {
-    let pushes = try GitHubDecoding.recentPushes(from: data(realEvents))
-    // old-branch was deleted after its push, so it is gone; the older push to feature/login is a duplicate; the tag and the
-    // issue event are not branches; "revived" was deleted BEFORE it was pushed again, so it counts.
-    #expect(pushes.map(\.id) == ["sindresorhus/type-fest@main", "acme/app@feature/login", "acme/app@revived"])
-    #expect(pushes[1].pushedAt == ISO8601DateFormatter().date(from: "2026-11-06T07:00:00Z"))
-    #expect(pushes[1].repoFullName == "acme/app" && pushes[1].branch == "feature/login")     // a slash in the branch survives
-    #expect(throws: GitHubError.unreadable) { try GitHubDecoding.recentPushes(from: data(#"{"message": "Not Found"}"#)) }
-    #expect(try GitHubDecoding.recentPushes(from: data("[]")).isEmpty)
-}
-
-@Test func theEventsRequestIsExact() {
-    let request = GitHubRequests.userEvents(token: "t", login: "jane-dev")
-    #expect(request.url?.absoluteString == "https://api.github.com/users/jane-dev/events?per_page=100")
-}
-
 // MARK: The comparison's commits
 
 @Test func aComparisonListsItsCommitsFirstLines() throws {
@@ -327,4 +294,100 @@ private let realEvents = """
 @Test func titleAndLinkAreReadyToPasteIntoAChat() {
     let pull = GitHubPullRequest(number: 5, title: "Add login", url: URL(string: "https://github.com/o/r/pull/5")!, repoFullName: "o/r")
     #expect(pull.titleAndLink == "Add login\nhttps://github.com/o/r/pull/5")
+}
+
+
+// MARK: Merged and closed
+
+@Test func theStateOfAPullRequestIsRead() throws {
+    func state(_ value: String) throws -> GitHubPullRequest.State {
+        let json = #"{"data": {"results": {"nodes": [{"number": 1, "title": "t", "url": "https://github.com/o/r/pull/1", "state": "\#(value)", "repository": {"nameWithOwner": "o/r"}}]}}}"#
+        return try GitHubDecoding.pullRequests(fromGraphQLSearch: data(json))[0].state
+    }
+    #expect(try state("OPEN") == .open && state("MERGED") == .merged && state("CLOSED") == .closed)
+    #expect(try state("SOMETHING_NEW") == .open)
+}
+
+// MARK: Searching a repository
+
+@Test func aSearchAnswerIsReadWithStatusAndSkipsWhatCannotBeSeen() throws {
+    let found = try GitHubDecoding.pullRequests(fromGraphQLSearch: data("""
+    {"data": {"results": {"nodes": [
+      {"number": 482, "title": "Add login page", "url": "https://github.com/shipmnts/app/pull/482", "state": "OPEN", "isDraft": false,
+       "updatedAt": "2026-11-07T10:00:00Z", "mergeable": "MERGEABLE", "reviewDecision": "APPROVED", "headRefName": "feature/login",
+       "baseRefName": "main", "repository": {"nameWithOwner": "shipmnts/app"}, "author": {"login": "ravi-k"},
+       "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}},
+      null,
+      {"number": 300, "title": "Old work", "url": "https://github.com/shipmnts/app/pull/300", "state": "MERGED", "repository": {"nameWithOwner": "shipmnts/app"}}
+    ]}}}
+    """))
+    #expect(found.map(\.number) == [482, 300])
+    #expect(found[0].authorLogin == "ravi-k" && found[0].checks == .passing && found[0].review == .approved && found[0].state == .open)
+    #expect(found[1].state == .merged)
+    #expect(try GitHubDecoding.pullRequests(fromGraphQLSearch: data(#"{"data": {"results": {"nodes": []}}}"#)).isEmpty)
+    #expect(throws: GitHubError.unreadable) { try GitHubDecoding.pullRequests(fromGraphQLSearch: data("<html>x</html>")) }
+    #expect(throws: GitHubError.forbidden("SAML")) {
+        try GitHubDecoding.pullRequests(fromGraphQLSearch: data(#"{"data": null, "errors": [{"type": "FORBIDDEN", "message": "SAML"}]}"#))
+    }
+}
+
+@Test func aPullRequestByNumberIsFoundOrIsNot() throws {
+    let found = try GitHubDecoding.pullRequest(fromGraphQLByNumber: data(#"{"data": {"repository": {"pullRequest": {"number": 482, "title": "Add login", "url": "https://github.com/o/r/pull/482", "state": "CLOSED", "repository": {"nameWithOwner": "o/r"}, "author": {"login": "ravi-k"}}}}}"#))
+    #expect(found?.number == 482 && found?.state == .closed && found?.authorLogin == "ravi-k")
+    // The repository exists but has no such number.
+    #expect(try GitHubDecoding.pullRequest(fromGraphQLByNumber: data(#"{"data": {"repository": {"pullRequest": null}}, "errors": [{"type": "NOT_FOUND"}]}"#)) == nil)
+    // The repository itself cannot be found.
+    #expect(try GitHubDecoding.pullRequest(fromGraphQLByNumber: data(#"{"data": {"repository": null}, "errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a Repository"}]}"#)) == nil)
+    #expect(throws: GitHubError.unreadable) { try GitHubDecoding.pullRequest(fromGraphQLByNumber: data("nonsense")) }
+    #expect(throws: GitHubError.forbidden("scope")) {
+        try GitHubDecoding.pullRequest(fromGraphQLByNumber: data(#"{"data": null, "errors": [{"type": "INSUFFICIENT_SCOPES", "message": "scope"}]}"#))
+    }
+}
+
+@Test func theSearchRequestsAreExact() throws {
+    let repo = GitHubRepoRef(owner: "shipmnts", name: "finance")
+    let search = GitHubRequests.searchPullRequestsWithStatus(token: "ghp_secret", query: "repo:shipmnts/finance is:pr login")
+    #expect(search.httpMethod == "POST" && search.url?.absoluteString == "https://api.github.com/graphql")
+    var sent = try #require(try JSONSerialization.jsonObject(with: search.httpBody ?? Data()) as? [String: Any])
+    #expect((sent["variables"] as? [String: String])?["query"] == "repo:shipmnts/finance is:pr login")
+    #expect((sent["query"] as? String)?.contains("query PullRequestSearch") == true)
+    #expect(String(data: search.httpBody ?? Data(), encoding: .utf8)?.contains("ghp_secret") == false)
+
+    let byNumber = GitHubRequests.pullRequestWithStatus(token: "t", repo, number: 482)
+    sent = try #require(try JSONSerialization.jsonObject(with: byNumber.httpBody ?? Data()) as? [String: Any])
+    let variables = try #require(sent["variables"] as? [String: Any])
+    #expect(variables["owner"] as? String == "shipmnts" && variables["name"] as? String == "finance" && variables["number"] as? Int == 482)
+
+    let rest = GitHubRequests.pullRequest(token: "t", repo, number: 482)
+    #expect(rest.url?.absoluteString == "https://api.github.com/repos/shipmnts/finance/pulls/482")
+}
+
+@Test func whatIsTypedIntoTheSearchBecomesTheRightSearch() {
+    let repo = GitHubRepoRef(owner: "shipmnts", name: "finance")
+    func plan(_ text: String, open: Bool = true) -> GitHubSearch.Plan { GitHubSearch.plan(for: text, in: repo, openOnly: open) }
+
+    // Nothing typed: the latest.
+    #expect(plan("") == .search("repo:shipmnts/finance is:pr is:open sort:updated-desc"))
+    #expect(plan("   ", open: false) == .search("repo:shipmnts/finance is:pr sort:updated-desc"))
+    // Words are searched for.
+    #expect(plan("login form") == .search("repo:shipmnts/finance is:pr is:open login form sort:updated-desc"))
+    // @name is an author, branch: a head branch, base: a base branch.
+    #expect(plan("@ravi-k") == .search("repo:shipmnts/finance is:pr is:open author:ravi-k sort:updated-desc"))
+    #expect(plan("branch:feat/OPS-19583-keda @ravi", open: false) == .search("repo:shipmnts/finance is:pr head:feat/OPS-19583-keda author:ravi sort:updated-desc"))
+    #expect(plan("base:staging") == .search("repo:shipmnts/finance is:pr is:open base:staging sort:updated-desc"))
+    #expect(plan("keda @ravi") == .search("repo:shipmnts/finance is:pr is:open keda author:ravi sort:updated-desc"))
+    // A lone "@" or an empty value is just text.
+    #expect(plan("@") == .search("repo:shipmnts/finance is:pr is:open @ sort:updated-desc"))
+}
+
+@Test func aNumberOrALinkNamesOnePullRequest() {
+    let repo = GitHubRepoRef(owner: "shipmnts", name: "finance")
+    func plan(_ text: String) -> GitHubSearch.Plan { GitHubSearch.plan(for: text, in: repo, openOnly: true) }
+    #expect(plan("482") == .number(482) && plan("#482") == .number(482) && plan("  #482 ") == .number(482))
+    #expect(plan("https://github.com/shipmnts/finance/pull/482") == .number(482))
+    #expect(plan("https://github.com/Shipmnts/Finance/pull/482/files") == .number(482))       // any capitals, a deeper link
+    // A link to a different repository is not this repository's pull request: it is just searched as text.
+    if case .number = plan("https://github.com/other/repo/pull/9") { Issue.record("a link to another repository was taken as ours") }
+    #expect(plan("0") != .number(0))                                                         // not a pull request number
+    if case .number = plan("OPS-19583") { Issue.record("a ticket id was taken as a number") }
 }

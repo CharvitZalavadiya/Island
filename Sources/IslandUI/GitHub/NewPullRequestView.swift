@@ -28,14 +28,28 @@ struct NewPullRequestView: View {
             // The fields scroll when there is not room for them all (an open description is tall)...
             ScrollView {
                 VStack(alignment: .leading, spacing: 7) {
-                    pickerButton(
-                        symbol: "shippingbox", prefix: nil, text: controller.repo?.fullName ?? "Choose a repository",
-                        isPlaceholder: controller.repo == nil, loading: controller.reposLoading
-                    ) { picking = .repository }
+                    HStack(spacing: 8) {
+                        pickerButton(
+                            symbol: "shippingbox", prefix: nil, text: controller.repo?.fullName ?? "Choose a repository",
+                            isPlaceholder: controller.repo == nil, loading: controller.reposLoading
+                        ) { picking = .repository }
+                        if controller.repo != nil {
+                            // The way back to the beginning: no repository, no branches, nothing typed.
+                            Button { controller.resetForm(); descriptionOpen = false } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white.opacity(0.7))
+                                    .frame(width: 30, height: 30)
+                                    .background(Color.white.opacity(0.1), in: Circle())
+                                    .contentShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Start over (choose another repository)")
+                        }
+                    }
 
                     if controller.repo == nil {
-                        suggestionList(controller.suggestions, heading: "Recently pushed: open a pull request from one")
-                        Text(controller.reposLoading ? "Loading your repositories…" : "Or pick the repository to open the pull request in. You can also type owner/name or paste a link.")
+                        Text(controller.reposLoading ? "Loading your repositories…" : "Pick the repository to open the pull request in. You can also type owner/name or paste a link.")
                             .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.5))
                             .padding(.top, 4)
@@ -43,9 +57,6 @@ struct NewPullRequestView: View {
                         HStack(spacing: 8) {
                             pickerButton(symbol: nil, prefix: "into", text: controller.base ?? "…", isPlaceholder: controller.base == nil, loading: false) { picking = .base }
                             pickerButton(symbol: nil, prefix: "from", text: controller.head ?? "Choose a branch", isPlaceholder: controller.head == nil, loading: controller.branchesLoading) { picking = .head }
-                        }
-                        if controller.head == nil, let repo = controller.repo {
-                            suggestionList(controller.suggestions(for: repo), heading: "Your recent branches here")
                         }
                         comparisonLine
                         if showsCommits, case .ready(let comparison) = controller.comparison { commitList(comparison) }
@@ -128,15 +139,16 @@ struct NewPullRequestView: View {
                     Text("Comparing the branches…").foregroundStyle(.white.opacity(0.5))
                 case .ready:
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(IslandTheme.keepAwake)
-                    Text("No new commits on \(controller.head ?? "this branch"): nothing to open a pull request for.")
+                    Text("Nothing new on \(controller.head ?? "this branch") compared with \(controller.base ?? "the base"). Pick another branch.")
                         .foregroundStyle(IslandTheme.keepAwake)
+                        .fixedSize(horizontal: false, vertical: true)
                 case .failed(let reason):
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(IslandTheme.danger)
                     Text(reason).foregroundStyle(IslandTheme.danger)
                 }
             }
             .font(.system(size: 11, weight: .medium))
-            .lineLimit(1)
+            .lineLimit(2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 4)
         }
@@ -161,36 +173,6 @@ struct NewPullRequestView: View {
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    /// Branches the person pushed to recently, one tap from a pull request.
-    @ViewBuilder
-    private func suggestionList(_ pushes: [GitHubPush], heading: String) -> some View {
-        if !pushes.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(heading).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.white.opacity(0.45)).padding(.horizontal, 4)
-                ForEach(pushes) { push in
-                    Button { Task { await controller.selectSuggestion(push) } } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "arrow.triangle.branch").font(.system(size: 11, weight: .semibold)).foregroundStyle(IslandTheme.github).frame(width: 16)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(push.branch).font(.system(size: 12.5, weight: .semibold)).lineLimit(1).truncationMode(.middle)
-                                Text("\(push.repoFullName) · \(PullRequestRow.relative(push.pushedAt))")
-                                    .font(.system(size: 10)).foregroundStyle(.white.opacity(0.45)).lineLimit(1)
-                            }
-                            Spacer(minLength: 0)
-                            Text("Open PR").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(IslandTheme.github)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(IslandTheme.github.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
-                        .contentShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
     }
 
     /// "3 commits · 5 files changed".
@@ -265,7 +247,7 @@ struct NewPullRequestView: View {
 // MARK: Choosing from a list
 
 /// A searchable list of repositories or branches, shown in place of the form.
-private struct PickerList: View {
+struct PickerList: View {
     @Bindable var controller: GitHubController
     let kind: PullRequestPicking
     let onDone: () -> Void
@@ -292,7 +274,7 @@ private struct PickerList: View {
             ScrollView {
                 LazyVStack(spacing: 4) {
                     switch kind {
-                    case .repository: repositoryRows
+                    case .repository, .searchRepository: repositoryRows
                     case .base: branchRows(asHead: false)
                     case .head: branchRows(asHead: true)
                     }
@@ -309,7 +291,7 @@ private struct PickerList: View {
 
     private var placeholder: String {
         switch kind {
-        case .repository: "Search, or type owner/name or paste a link"
+        case .repository, .searchRepository: "Search, or type owner/name or paste a link"
         case .base, .head: "Search branches, or type a name"
         }
     }
@@ -317,9 +299,9 @@ private struct PickerList: View {
     /// Return in the search box takes what was typed as it is: a repository reference, or a branch name.
     private func submitTyped() {
         switch kind {
-        case .repository:
+        case .repository, .searchRepository:
             guard GitHubRepoRef.parse(query) != nil else { return }
-            Task { await controller.selectRepo(typed: query) }
+            lookUpTypedRepository()
             onDone()
         case .base, .head:
             let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -333,12 +315,25 @@ private struct PickerList: View {
         }
     }
 
+    private var isSearching: Bool { kind == .searchRepository }
+
+    /// A repository typed in: looked up on GitHub and chosen (for the form, or for searching).
+    private func lookUpTypedRepository() {
+        let text = query
+        Task {
+            if isSearching { await controller.selectSearchRepo(typed: text) } else { await controller.selectRepo(typed: text) }
+        }
+    }
+
     @ViewBuilder
     private var repositoryRows: some View {
-        let repos = controller.pickableRepos(matching: query)
-        if GitHubRepoRef.parse(query) != nil, !repos.contains(where: { $0.fullName.lowercased() == GitHubRepoRef.parse(query)?.fullName.lowercased() }) {
-            row(title: "Open \(GitHubRepoRef.parse(query)?.fullName ?? query)", subtitle: "Look it up on GitHub", symbol: "magnifyingglass", highlighted: true) {
-                Task { await controller.selectRepo(typed: query) }
+        // A pull request can only start from a repository you can push to; any repository you can see can be searched.
+        let repos = isSearching ? controller.searchableRepos(matching: query) : controller.pickableRepos(matching: query)
+        let current = isSearching ? controller.searchRepo : controller.repo
+        let typedReference = GitHubRepoRef.parse(query)
+        if let typedReference, !repos.contains(where: { $0.fullName.lowercased() == typedReference.fullName.lowercased() }) {
+            row(title: "Open \(typedReference.fullName)", subtitle: "Look it up on GitHub", symbol: "magnifyingglass", highlighted: true) {
+                lookUpTypedRepository()
                 onDone()
             }
         }
@@ -348,8 +343,8 @@ private struct PickerList: View {
             note("No repository matches. Type owner/name to look one up.")
         }
         ForEach(repos) { repo in
-            row(title: repo.fullName, subtitle: repo.summary, symbol: repo.isPrivate ? "lock.fill" : "shippingbox", highlighted: controller.repo?.id == repo.id) {
-                Task { await controller.selectRepo(repo) }
+            row(title: repo.fullName, subtitle: repo.summary, symbol: repo.isPrivate ? "lock.fill" : "shippingbox", highlighted: current?.id == repo.id) {
+                if isSearching { controller.selectSearchRepo(repo) } else { Task { await controller.selectRepo(repo) } }
                 onDone()
             }
         }
@@ -427,6 +422,8 @@ enum PullRequestPicking: Equatable {
     case repository
     case base
     case head
+    /// The repository whose pull requests are searched (any you can see, not only ones you can push to).
+    case searchRepository
 }
 
 // MARK: After creating
@@ -440,7 +437,7 @@ struct CreatedPullRequestCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: 20)).foregroundStyle(IslandTheme.tasks)
-                Text("Pull request #\(pullRequest.number) \(pullRequest.isDraft ? "created as a draft" : "created")")
+                Text(verbatim: "Pull request #\(pullRequest.number) \(pullRequest.isDraft ? "created as a draft" : "created")")
                     .font(.system(size: 15, weight: .bold))
             }
             Text(pullRequest.title).font(.system(size: 13, weight: .semibold)).lineLimit(2)
@@ -484,7 +481,7 @@ struct ExistingPullRequestRow: View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.triangle.pull").foregroundStyle(IslandTheme.github)
             VStack(alignment: .leading, spacing: 1) {
-                Text("#\(pullRequest.number) \(pullRequest.title)").font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                Text(verbatim: "#\(pullRequest.number) \(pullRequest.title)").font(.system(size: 12, weight: .semibold)).lineLimit(1)
                 Text("Already open").font(.system(size: 10)).foregroundStyle(.white.opacity(0.5))
             }
             .frame(maxWidth: .infinity, alignment: .leading)

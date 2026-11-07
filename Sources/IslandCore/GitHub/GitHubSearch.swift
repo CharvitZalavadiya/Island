@@ -54,3 +54,43 @@ public enum GitHubSearch {
         return nil
     }
 }
+
+/// A pull request named by a link or by the short form people type: which repository, and which number.
+public struct GitHubPullRequestReference: Equatable, Sendable {
+    public var repo: GitHubRepoRef
+    public var number: Int
+
+    public init(repo: GitHubRepoRef, number: Int) {
+        self.repo = repo
+        self.number = number
+    }
+
+    /// Reads `https://github.com/owner/repo/pull/123` (also without `https://` or `www.`, with `/files`, `/commits`, a
+    /// `?query` or a `#fragment` after it) and the short `owner/repo#123`. Nil for anything else, including a link to
+    /// another website and a link to an issue.
+    public static func parse(_ text: String) -> GitHubPullRequestReference? {
+        var rest = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rest.isEmpty, !rest.contains(where: \.isWhitespace) else { return nil }
+        for prefix in ["https://", "http://"] where rest.lowercased().hasPrefix(prefix) { rest = String(rest.dropFirst(prefix.count)) }
+        for host in ["www.github.com/", "github.com/"] where rest.lowercased().hasPrefix(host) { rest = String(rest.dropFirst(host.count)) }
+
+        // owner/repo#123
+        if let hash = rest.firstIndex(of: "#") {
+            let before = String(rest[..<hash]), after = String(rest[rest.index(after: hash)...])
+            let parts = before.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+            if parts.count == 2, !after.isEmpty, after.allSatisfy(\.isNumber), let number = Int(after), number > 0,
+               let repo = GitHubRepoRef.parse("\(parts[0])/\(parts[1])"), repo.fullName == "\(parts[0])/\(parts[1])" {
+                return GitHubPullRequestReference(repo: repo, number: number)
+            }
+        }
+
+        // owner/repo/pull/123 and what may follow it
+        var path = rest
+        if let cut = path.firstIndex(where: { $0 == "?" || $0 == "#" }) { path = String(path[..<cut]) }
+        let parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count >= 4, parts[2] == "pull", parts[3].allSatisfy(\.isNumber), let number = Int(parts[3]), number > 0,
+              let repo = GitHubRepoRef.parse("\(parts[0])/\(parts[1])")
+        else { return nil }
+        return GitHubPullRequestReference(repo: repo, number: number)
+    }
+}

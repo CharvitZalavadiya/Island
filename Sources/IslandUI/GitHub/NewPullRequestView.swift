@@ -253,17 +253,14 @@ struct PickerList: View {
     let onDone: () -> Void
 
     @State private var query = ""
-    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
-                    TextField(placeholder, text: $query)
-                        .textFieldStyle(.plain)
-                        .focused($focused)
-                        .onSubmit(submitTyped)
+                    // Takes the keyboard by itself as soon as the list opens; Escape closes the list.
+                    SearchField(text: $query, placeholder: placeholder, onSubmit: submitTyped, onCancel: onDone)
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 30)
@@ -282,16 +279,19 @@ struct PickerList: View {
             }
             .scrollIndicators(.hidden)
         }
-        .onAppear { focused = true }
-        // Typing needs Island to be the active app; this only happens when the box gets focus.
-        .onChange(of: focused) { _, isFocused in
-            if isFocused { NSApp.activate(ignoringOtherApps: true) }
+        // A pull request link pasted while searching opens that pull request at once; one typed by hand waits for Return
+        // (it would otherwise open "#1" on the way to "#123"). A paste is told from typing by how much arrives at once.
+        .onChange(of: query) { old, new in
+            guard isSearching, new.count - old.count > 3, GitHubPullRequestReference.parse(new) != nil else { return }
+            lookUpTypedRepository()
+            onDone()
         }
     }
 
     private var placeholder: String {
         switch kind {
-        case .repository, .searchRepository: "Search, or type owner/name or paste a link"
+        case .repository: "Search, or type owner/name or paste a link"
+        case .searchRepository: "Search, or paste a repository or pull request link"
         case .base, .head: "Search branches, or type a name"
         }
     }
@@ -300,7 +300,7 @@ struct PickerList: View {
     private func submitTyped() {
         switch kind {
         case .repository, .searchRepository:
-            guard GitHubRepoRef.parse(query) != nil else { return }
+            guard GitHubRepoRef.parse(query) != nil || GitHubPullRequestReference.parse(query) != nil else { return }
             lookUpTypedRepository()
             onDone()
         case .base, .head:
@@ -331,7 +331,13 @@ struct PickerList: View {
         let repos = isSearching ? controller.searchableRepos(matching: query) : controller.pickableRepos(matching: query)
         let current = isSearching ? controller.searchRepo : controller.repo
         let typedReference = GitHubRepoRef.parse(query)
-        if let typedReference, !repos.contains(where: { $0.fullName.lowercased() == typedReference.fullName.lowercased() }) {
+        // A pull request link pasted here (when searching) opens that pull request for review.
+        if isSearching, let pull = GitHubPullRequestReference.parse(query) {
+            row(title: "Open pull request #\(pull.number)", subtitle: pull.repo.fullName, symbol: "checkmark.bubble", highlighted: true) {
+                lookUpTypedRepository()
+                onDone()
+            }
+        } else if let typedReference, !repos.contains(where: { $0.fullName.lowercased() == typedReference.fullName.lowercased() }) {
             row(title: "Open \(typedReference.fullName)", subtitle: "Look it up on GitHub", symbol: "magnifyingglass", highlighted: true) {
                 lookUpTypedRepository()
                 onDone()

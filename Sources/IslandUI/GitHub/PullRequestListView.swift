@@ -80,16 +80,6 @@ struct PullRequestRow: View {
             // Shown only while the pointer is on the row, so the row keeps its shape. "Copied" keeps it on for a moment.
             let copied = controller.copiedID == pullRequest.id
             HStack(spacing: 6) {
-                Button { Task { await controller.openReview(pullRequest) } } label: {
-                    Image(systemName: "checkmark.bubble")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(IslandTheme.github)
-                        .frame(width: 26, height: 26)
-                        .background(IslandTheme.github.opacity(0.18), in: Circle())
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Review: approve, request changes or comment")
                 Button { controller.copyLink(of: pullRequest) } label: {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 11, weight: .semibold))

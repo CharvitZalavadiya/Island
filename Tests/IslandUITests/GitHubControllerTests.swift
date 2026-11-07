@@ -584,7 +584,7 @@ private actor Gate {
 
 @Test @MainActor func aTypedRepositoryCanBeSearchedEvenWithoutWriteAccess() async {
     let (controller, _, _, _) = await connected()
-    await controller.selectSearchRepo(typed: "https://github.com/acme/readonly/pull/3")
+    await controller.selectSearchRepo(typed: "https://github.com/acme/readonly")
     #expect(controller.searchRepo?.fullName == "acme/readonly" && controller.message == nil)   // read-only is fine for looking
     await controller.selectSearchRepo(typed: "acme/nothing-here")
     #expect(controller.message?.text == "GitHub can't find acme/nothing-here, or your token can't see it.")
@@ -799,4 +799,70 @@ private func theirs(_ number: Int = 1204, author: String = "ravi-k", state: GitH
     await controller.pressReviewButton(.approve)
     await controller.pressReviewButton(.approve)
     #expect(controller.connection == .disconnected && tokens.stored == nil && controller.reviewTarget == nil)
+}
+
+
+// MARK: Pasting a pull request link
+
+@Test @MainActor func pastingALinkChoosesItsRepositoryAndOpensTheReviewPanel() async {
+    let api = FakeGitHub()
+    api.numbered[482] = GitHubPullRequest(number: 482, title: "Friend's change", url: URL(string: "https://github.com/octocat/blog/pull/482")!, repoFullName: "octocat/blog", authorLogin: "ravi-k")
+    api.details[482] = GitHubPullRequestDetails(pullRequest: api.numbered[482]!, commits: 2)
+    let (controller, _, _, _) = await connected(api)
+    #expect(controller.searchRepo == nil)                                                   // nothing chosen yet
+    let opened = await controller.openPullRequest(link: "https://github.com/octocat/blog/pull/482/files")
+    #expect(opened)
+    #expect(controller.searchRepo?.fullName == "octocat/blog")                              // the repository was chosen for searching
+    #expect(controller.reviewTarget?.number == 482 && controller.reviewDetails?.commits == 2)   // and the review panel is open
+    #expect(api.calls.contains("repo:octocat/blog") && api.calls.contains("pr:octocat/blog#482") && api.calls.contains("details:octocat/blog#482"))
+    #expect(controller.message == nil)
+}
+
+@Test @MainActor func aLinkToTheRepositoryAlreadyChosenSkipsTheLookup() async {
+    let api = FakeGitHub()
+    api.numbered[7] = GitHubPullRequest(number: 7, title: "Seven", url: URL(string: "https://github.com/acme/app/pull/7")!, repoFullName: "acme/app")
+    let (controller, _, _, _) = await connected(api)
+    controller.selectSearchRepo(controller.repos[0])                                        // acme/app
+    #expect(await controller.openPullRequest(link: "ACME/App#7"))                           // the short form, any capitals
+    #expect(!api.calls.contains("repo:ACME/App") && !api.calls.contains("repo:acme/app"))   // no second look-up of the repository
+    #expect(controller.reviewTarget?.number == 7)
+}
+
+@Test @MainActor func aLinkToAPullRequestThatDoesNotExistSaysSoAndOpensNothing() async {
+    let api = FakeGitHub()
+    let (controller, _, _, _) = await connected(api)
+    #expect(!(await controller.openPullRequest(link: "https://github.com/octocat/blog/pull/9999")))
+    #expect(controller.reviewTarget == nil && controller.message?.text == "There's no pull request #9999 in octocat/blog.")
+    #expect(controller.searchRepo?.fullName == "octocat/blog")                              // the repository was still chosen
+}
+
+@Test @MainActor func aLinkToARepositoryYouCannotSeeIsExplained() async {
+    let (controller, _, _, _) = await connected()
+    #expect(!(await controller.openPullRequest(link: "https://github.com/secret/place/pull/1")))
+    #expect(controller.message?.text == "GitHub can't find secret/place, or your token can't see it." && controller.reviewTarget == nil)
+}
+
+@Test @MainActor func somethingThatIsNotAPullRequestLinkDoesNothing() async {
+    let api = FakeGitHub()
+    let (controller, _, _, _) = await connected(api)
+    let before = api.calls.count
+    #expect(!(await controller.openPullRequest(link: "login form")))
+    #expect(!(await controller.openPullRequest(link: "https://github.com/acme/app")))
+    #expect(api.calls.count == before && controller.message == nil)
+}
+
+@Test @MainActor func aLinkAlsoWorksTypedIntoTheSearchRepositoryPicker() async {
+    let api = FakeGitHub()
+    api.numbered[3] = GitHubPullRequest(number: 3, title: "Three", url: URL(string: "https://github.com/acme/readonly/pull/3")!, repoFullName: "acme/readonly")
+    let (controller, _, _, _) = await connected(api)
+    await controller.selectSearchRepo(typed: "https://github.com/acme/readonly/pull/3")
+    #expect(controller.searchRepo?.fullName == "acme/readonly" && controller.reviewTarget?.number == 3)   // read-only is fine for reviewing
+}
+
+@Test @MainActor func aRevokedTokenWhileOpeningALinkBringsTheConnectScreenBack() async {
+    let api = FakeGitHub()
+    let (controller, _, tokens, _) = await connected(api)
+    api.failure = GitHubError.unauthorized
+    #expect(!(await controller.openPullRequest(link: "acme/app#7")))
+    #expect(controller.connection == .disconnected && tokens.stored == nil)
 }

@@ -466,3 +466,46 @@ private let realReviews = #"[{"id": 2436955794, "user": {"login": "airspeedswift
     #expect(try sent(GitHubRequests.submitReview(token: "t", repo, number: 1, event: .comment, body: "Looks odd"))["event"] as? String == "COMMENT")
     #expect(GitHubReviewEvent.approve.needsComment == false && GitHubReviewEvent.requestChanges.needsComment && GitHubReviewEvent.comment.needsComment)
 }
+
+// MARK: Pull request links
+
+@Test func aPullRequestLinkOrShortFormNamesTheRepositoryAndNumber() {
+    let expected = GitHubPullRequestReference(repo: GitHubRepoRef(owner: "shipmnts", name: "finance"), number: 1204)
+    for text in [
+        "https://github.com/shipmnts/finance/pull/1204",
+        "  https://github.com/shipmnts/finance/pull/1204\n",
+        "http://github.com/shipmnts/finance/pull/1204",
+        "github.com/shipmnts/finance/pull/1204",
+        "www.github.com/shipmnts/finance/pull/1204",
+        "https://github.com/shipmnts/finance/pull/1204/files",
+        "https://github.com/shipmnts/finance/pull/1204/commits/abc123",
+        "https://github.com/shipmnts/finance/pull/1204?diff=split",
+        "https://github.com/shipmnts/finance/pull/1204#issuecomment-99",
+        "https://github.com/shipmnts/finance/pull/1204/files#diff-abc",
+        "shipmnts/finance/pull/1204",
+        "shipmnts/finance#1204",
+    ] {
+        #expect(GitHubPullRequestReference.parse(text) == expected, "\(text)")
+    }
+    // Capitals and dots, hyphens and underscores in names are kept as written.
+    #expect(GitHubPullRequestReference.parse("https://github.com/My-Org/some_repo.js/pull/7")
+        == GitHubPullRequestReference(repo: GitHubRepoRef(owner: "My-Org", name: "some_repo.js"), number: 7))
+}
+
+@Test func thingsThatAreNotPullRequestsAreNotTakenForOne() {
+    for text in [
+        "", "   ", "482", "#482", "hello", "shipmnts/finance",                                   // no number, or only a repository
+        "https://github.com/shipmnts/finance",                                                 // a repository
+        "https://github.com/shipmnts/finance/issues/1204",                                     // an issue
+        "https://github.com/shipmnts/finance/pull/",                                           // no number
+        "https://github.com/shipmnts/finance/pull/abc",
+        "https://github.com/shipmnts/finance/pull/0",
+        "https://example.com/shipmnts/finance/pull/1204",                                      // another website
+        "https://gitlab.com/shipmnts/finance/pull/1204",
+        "shipmnts/finance#abc", "shipmnts/finance#0", "shipmnts/finance#", "a/b/c#12",
+        "two words shipmnts/finance#12",
+        "please review https://github.com/shipmnts/finance/pull/1204",                         // a sentence, not a link
+    ] {
+        #expect(GitHubPullRequestReference.parse(text) == nil, "\(text)")
+    }
+}

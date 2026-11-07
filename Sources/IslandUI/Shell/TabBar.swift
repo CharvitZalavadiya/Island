@@ -18,6 +18,7 @@ struct TabBar: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .focusable(false)   // keyboard focus must never land on a tab by itself
                 .help(tab.title)
             }
             Spacer(minLength: 0)
@@ -30,6 +31,7 @@ struct TabBar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .focusable(false)
             .help(model.isPinned ? "Unpin: let the island close again" : "Pin: keep the island open")
             Menu {
                 Button("Settings…") { openSettings() }

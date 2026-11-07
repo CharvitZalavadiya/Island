@@ -48,6 +48,7 @@ struct PullRequestReviewView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(pull.title).font(.system(size: 13.5, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 Text(verbatim: meta(pull)).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.5)).lineLimit(1).truncationMode(.middle)
+                if let head = pull.headBranch, let base = pull.baseBranch { branches(head: head, base: base) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -56,8 +57,20 @@ struct PullRequestReviewView: View {
     private func meta(_ pull: GitHubPullRequest) -> String {
         var parts = ["\(pull.repoFullName) #\(pull.number)"]
         if let author = pull.authorLogin { parts.append("by \(author)") }
-        if let head = pull.headBranch, let base = pull.baseBranch { parts.append("\(head) → \(base)") }
         return parts.joined(separator: " · ")
+    }
+
+    /// Where the change is going and where it comes from, on a line of its own: `staging ← feature/login`. The base
+    /// stays whole; a very long branch name gives way in its middle.
+    private func branches(head: String, base: String) -> some View {
+        HStack(spacing: 5) {
+            Text(verbatim: base).layoutPriority(1)
+            Image(systemName: "arrow.left").font(.system(size: 8, weight: .bold)).foregroundStyle(.white.opacity(0.4))
+            Text(verbatim: head).truncationMode(.middle)
+        }
+        .font(.system(size: 10.5, weight: .medium))
+        .foregroundStyle(.white.opacity(0.7))
+        .lineLimit(1)
     }
 
     // MARK: What it is

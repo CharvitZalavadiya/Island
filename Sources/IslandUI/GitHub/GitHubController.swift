@@ -619,8 +619,13 @@ final class GitHubController {
         isSearching = false
     }
 
-    /// A repository typed or pasted in for searching.
+    /// A repository typed or pasted in for searching. A link to a pull request goes one step further: it opens that pull
+    /// request for review (see `openPullRequest(link:)`).
     func selectSearchRepo(typed text: String) async {
+        if GitHubPullRequestReference.parse(text) != nil {
+            _ = await openPullRequest(link: text)
+            return
+        }
         guard connection == .connected, let token, let reference = GitHubRepoRef.parse(text) else {
             message = Message(text: "Type a repository as owner/name, or paste its link.", isError: true)
             return
@@ -637,6 +642,35 @@ final class GitHubController {
             selectSearchRepo(found)
         } catch {
             handle(error, doing: "look up \(reference.fullName)", notFound: "GitHub can't find \(reference.fullName), or your token can't see it.")
+        }
+    }
+
+    /// A pull request link (or `owner/repo#123`) was pasted: its repository becomes the one being searched, and the pull
+    /// request opens for review, so the person can act on it straight away. Returns whether it opened.
+    func openPullRequest(link text: String) async -> Bool {
+        guard connection == .connected, let token, let reference = GitHubPullRequestReference.parse(text) else { return false }
+        isLookingUp = true
+        defer { isLookingUp = false }
+        do {
+            // The repository: any the account can see (it need not be one a new pull request could start from).
+            if searchRepo?.fullName.lowercased() != reference.repo.fullName.lowercased() {
+                let found = try await api.repo(token: token, reference.repo)
+                guard !found.isDisabled else {
+                    message = Message(text: "\(found.fullName) is disabled.", isError: true)
+                    return false
+                }
+                if !repos.contains(where: { $0.id == found.id }) { repos.insert(found, at: 0) }
+                selectSearchRepo(found)
+            }
+            guard let pull = try await api.pullRequest(token: token, reference.repo, number: reference.number) else {
+                message = Message(text: "There's no pull request #\(reference.number) in \(reference.repo.fullName).", isError: true)
+                return false
+            }
+            await openReview(pull)
+            return true
+        } catch {
+            handle(error, doing: "open that pull request", notFound: "GitHub can't find \(reference.repo.fullName), or your token can't see it.")
+            return false
         }
     }
 

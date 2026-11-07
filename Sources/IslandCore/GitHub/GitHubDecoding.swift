@@ -62,12 +62,27 @@ public enum GitHubDecoding {
         var base: WireRef?
         var repositoryUrl: String?
         var pullRequest: WirePullLinks?
+        // Only a single pull request (not a list of them) carries these.
+        var body: String?
+        var commits: Int?
+        var additions: Int?
+        var deletions: Int?
+        var changedFiles: Int?
+        var mergeable: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case number, title, state, draft, user, head, base
+            case number, title, state, draft, user, head, base, body, commits, additions, deletions, mergeable
             case htmlUrl = "html_url", mergedAt = "merged_at", updatedAt = "updated_at"
-            case repositoryUrl = "repository_url", pullRequest = "pull_request"
+            case repositoryUrl = "repository_url", pullRequest = "pull_request", changedFiles = "changed_files"
         }
+    }
+
+    private struct WireReview: Decodable {
+        var id: Int?
+        var user: WireOwner?
+        var state: String?
+        var submittedAt: String?
+        enum CodingKeys: String, CodingKey { case id, user, state, submittedAt = "submitted_at" }
     }
 
     private struct WireSearch: Decodable { var items: [WirePull]? }
@@ -131,6 +146,42 @@ public enum GitHubDecoding {
             throw GitHubError.unreadable
         }
         return pull
+    }
+
+    /// One pull request with the numbers and description the review panel shows, and its reviews.
+    public static func pullRequestDetails(pull: Data, reviews: Data) throws -> GitHubPullRequestDetails {
+        guard let wire = try? JSONDecoder().decode(WirePull.self, from: pull), let basic = Self.pull(from: wire) else {
+            throw GitHubError.unreadable
+        }
+        return GitHubPullRequestDetails(
+            pullRequest: basic, body: wire.body ?? "", commits: wire.commits ?? 0, changedFiles: wire.changedFiles ?? 0,
+            additions: wire.additions ?? 0, deletions: wire.deletions ?? 0, hasConflicts: wire.mergeable == false,
+            reviews: try self.reviews(from: reviews))
+    }
+
+    public static func reviews(from data: Data) throws -> [GitHubReview] {
+        guard let wires = try? JSONDecoder().decode([WireReview].self, from: data) else { throw GitHubError.unreadable }
+        return wires.compactMap(review(from:))
+    }
+
+    /// The review GitHub answers with after one is sent.
+    public static func review(from data: Data) throws -> GitHubReview {
+        guard let wire = try? JSONDecoder().decode(WireReview.self, from: data), let review = review(from: wire) else {
+            throw GitHubError.unreadable
+        }
+        return review
+    }
+
+    private static func review(from wire: WireReview) -> GitHubReview? {
+        guard let id = wire.id, let login = wire.user?.login else { return nil }
+        let verdict: GitHubReview.Verdict = switch wire.state?.uppercased() {
+        case "APPROVED": .approved
+        case "CHANGES_REQUESTED": .changesRequested
+        case "DISMISSED": .dismissed
+        case "PENDING": .pending
+        default: .commented
+        }
+        return GitHubReview(id: id, authorLogin: login, verdict: verdict, submittedAt: wire.submittedAt.flatMap(date))
     }
 
     public static func pullRequests(from data: Data) throws -> [GitHubPullRequest] {

@@ -35,6 +35,14 @@ final class GitHubController {
         case failed(String)
     }
 
+    /// Where sending a review stands.
+    enum ReviewSubmission: Equatable {
+        case idle
+        case submitting(GitHubReviewEvent)
+        /// Sent (and what was sent).
+        case done(GitHubReviewEvent)
+    }
+
     enum Creation: Equatable {
         case idle
         case creating
@@ -95,6 +103,19 @@ final class GitHubController {
     private(set) var searchLoaded = false
     @ObservationIgnored private var searchGeneration = 0
 
+    // Reviewing a pull request (usually someone else's)
+    private(set) var reviewTarget: GitHubPullRequest?
+    private(set) var reviewDetails: GitHubPullRequestDetails?
+    private(set) var isLoadingReview = false
+    /// What the person has written to go with the review (required to request changes).
+    var reviewComment = ""
+    private(set) var reviewSubmission: ReviewSubmission = .idle
+    /// The action pressed once and waiting for the second press that sends it. It lapses by itself.
+    private(set) var confirming: GitHubReviewEvent?
+    @ObservationIgnored private var reviewGeneration = 0
+    @ObservationIgnored private var confirmationGeneration = 0
+    @ObservationIgnored private let confirmationSeconds: TimeInterval
+
     /// The pull request whose link was just copied (the button says "Copied" for a moment).
     private(set) var copiedID: String?
 
@@ -117,6 +138,7 @@ final class GitHubController {
     init(
         api: GitHubAPI = URLSessionGitHubAPI(), tokens: TokenStoring = KeychainTokenStore(forService: "github"),
         now: @escaping () -> Date = Date.init, refreshInterval: TimeInterval = 120, copiedSeconds: TimeInterval = 1.5,
+        confirmationSeconds: TimeInterval = 4,
         writeToClipboard: @escaping (String) -> Void = { text in
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
@@ -127,6 +149,7 @@ final class GitHubController {
         self.now = now
         self.refreshInterval = refreshInterval
         self.copiedSeconds = copiedSeconds
+        self.confirmationSeconds = confirmationSeconds
         self.writeToClipboard = writeToClipboard
     }
 
@@ -414,6 +437,122 @@ final class GitHubController {
         choiceGeneration += 1
     }
 
+    // MARK: Reviewing a pull request
+
+    /// The pull request as the review panel knows it: fresh from GitHub once it has loaded, else as it was in the list.
+    var reviewedPullRequest: GitHubPullRequest? { reviewDetails?.pullRequest ?? reviewTarget }
+
+    var isOwnPullRequest: Bool {
+        guard let author = reviewedPullRequest?.authorLogin, let me = account?.login else { return false }
+        return author.lowercased() == me.lowercased()
+    }
+
+    /// Why approving or asking for changes is not possible here, if it is not (a comment always is).
+    var reviewBlockReason: String? {
+        guard let pull = reviewedPullRequest else { return nil }
+        if isOwnPullRequest { return "You can't approve or request changes on your own pull request. You can still comment." }
+        switch pull.state {
+        case .open: return nil
+        case .merged: return "This pull request is already merged, so it can't be approved or sent back."
+        case .closed: return "This pull request is closed, so it can't be approved or sent back."
+        }
+    }
+
+    /// The person's own standing on the pull request: their latest approval, request for changes or dismissal.
+    var myStanding: GitHubReview? {
+        account.flatMap { reviewDetails?.standing(of: $0.login) }
+    }
+
+    /// Whether `event` can be sent now: nothing in flight, a comment where one is needed, and (for approving or asking
+    /// for changes) a pull request that can take it.
+    func canSubmit(_ event: GitHubReviewEvent) -> Bool {
+        guard connection == .connected, reviewTarget != nil else { return false }
+        if case .submitting = reviewSubmission { return false }
+        if event.needsComment, reviewComment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return false }
+        if event != .comment, reviewBlockReason != nil { return false }
+        return true
+    }
+
+    /// Opens the review panel for a pull request and loads what it shows.
+    func openReview(_ pullRequest: GitHubPullRequest) async {
+        reviewGeneration += 1
+        let generation = reviewGeneration
+        reviewTarget = pullRequest
+        reviewDetails = nil
+        reviewComment = ""
+        reviewSubmission = .idle
+        clearConfirmation()
+        message = nil
+        guard connection == .connected, let token else { return }
+        isLoadingReview = true
+        do {
+            let loaded = try await api.pullRequestDetails(token: token, GitHubRepoRef(fullName: pullRequest.repoFullName), number: pullRequest.number)
+            guard generation == reviewGeneration else { return }   // another pull request was opened (or the panel closed) since
+            reviewDetails = loaded
+        } catch is CancellationError {
+        } catch {
+            if generation == reviewGeneration { handle(error, doing: "load that pull request") }
+        }
+        if generation == reviewGeneration { isLoadingReview = false }
+    }
+
+    func closeReview() {
+        reviewGeneration += 1
+        reviewTarget = nil
+        reviewDetails = nil
+        reviewComment = ""
+        reviewSubmission = .idle
+        isLoadingReview = false
+        clearConfirmation()
+    }
+
+    /// A press on Approve, Request changes or Comment. A comment is sent at once. Approving and asking for changes speak
+    /// for the person to their whole team, so the first press only asks "Sure?"; the second (within a few seconds) sends.
+    func pressReviewButton(_ event: GitHubReviewEvent) async {
+        guard canSubmit(event) else { return }
+        guard event != .comment else { return await submitReview(event) }
+        if confirming == event { return await submitReview(event) }
+        confirming = event
+        confirmationGeneration += 1
+        let generation = confirmationGeneration
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(confirmationSeconds * 1_000_000_000))
+            if generation == confirmationGeneration { confirming = nil }
+        }
+    }
+
+    private func clearConfirmation() {
+        confirming = nil
+        confirmationGeneration += 1
+    }
+
+    private func submitReview(_ event: GitHubReviewEvent) async {
+        guard canSubmit(event), let token, let target = reviewTarget else { return }
+        let generation = reviewGeneration
+        clearConfirmation()
+        reviewSubmission = .submitting(event)
+        message = nil
+        do {
+            let sent = try await api.submitReview(
+                token: token, GitHubRepoRef(fullName: target.repoFullName), number: target.number, event: event, body: reviewComment)
+            guard generation == reviewGeneration else { return }
+            reviewSubmission = .done(event)
+            reviewComment = ""
+            // Show where the person stands now, without waiting for another round trip.
+            if var details = reviewDetails {
+                details.reviews.append(sent)
+                reviewDetails = details
+            }
+            await refreshLists()   // a pull request that was waiting on this review no longer is
+        } catch is CancellationError {
+            if generation == reviewGeneration { reviewSubmission = .idle }
+        } catch {
+            guard generation == reviewGeneration else { return }
+            reviewSubmission = .idle   // the comment stays, so nothing the person wrote is lost
+            handle(error, doing: "send the review")
+        }
+    }
+
     // MARK: Copying
 
     func copyLink(of pullRequest: GitHubPullRequest) {
@@ -598,6 +737,13 @@ final class GitHubController {
         searchLoaded = false
         isSearching = false
         searchGeneration += 1
+        reviewTarget = nil
+        reviewDetails = nil
+        reviewComment = ""
+        reviewSubmission = .idle
+        isLoadingReview = false
+        reviewGeneration += 1
+        clearConfirmation()
         copiedID = nil
         pausedUntil = .distantPast
         choiceGeneration += 1

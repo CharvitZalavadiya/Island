@@ -24,6 +24,10 @@ protocol GitHubAPI: Sendable {
     func searchPullRequests(token: String, query: String) async throws -> [GitHubPullRequest]
     /// One pull request by its number, or nil if the repository has none with that number.
     func pullRequest(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> GitHubPullRequest?
+    /// One pull request with its numbers, its description and the reviews it has.
+    func pullRequestDetails(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> GitHubPullRequestDetails
+    /// Sends a review (an approval, a request for changes or a comment) in the person's name.
+    func submitReview(token: String, _ repo: GitHubRepoRef, number: Int, event: GitHubReviewEvent, body: String) async throws -> GitHubReview
 }
 
 /// GitHub over the internet. It uses an ephemeral session, so nothing about a person's repositories is cached on disk.
@@ -151,6 +155,17 @@ final class URLSessionGitHubAPI: GitHubAPI, @unchecked Sendable {
         return GitHubPullRequestLists(
             mine: try GitHubDecoding.searchedPullRequests(from: try await mine),
             review: try GitHubDecoding.searchedPullRequests(from: try await review))
+    }
+
+    func pullRequestDetails(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> GitHubPullRequestDetails {
+        async let pull = send(GitHubRequests.pullRequest(token: token, repo, number: number)).data
+        async let reviews = send(GitHubRequests.reviews(token: token, repo, number: number)).data
+        return try GitHubDecoding.pullRequestDetails(pull: try await pull, reviews: try await reviews)
+    }
+
+    func submitReview(token: String, _ repo: GitHubRepoRef, number: Int, event: GitHubReviewEvent, body: String) async throws -> GitHubReview {
+        try GitHubDecoding.review(
+            from: try await send(GitHubRequests.submitReview(token: token, repo, number: number, event: event, body: body)).data)
     }
 
     // MARK: Internals

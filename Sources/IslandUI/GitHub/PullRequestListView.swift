@@ -80,6 +80,16 @@ struct PullRequestRow: View {
             // Shown only while the pointer is on the row, so the row keeps its shape. "Copied" keeps it on for a moment.
             let copied = controller.copiedID == pullRequest.id
             HStack(spacing: 6) {
+                Button { Task { await controller.openReview(pullRequest) } } label: {
+                    Image(systemName: "checkmark.bubble")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(IslandTheme.github)
+                        .frame(width: 26, height: 26)
+                        .background(IslandTheme.github.opacity(0.18), in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Review: approve, request changes or comment")
                 Button { controller.copyLink(of: pullRequest) } label: {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 11, weight: .semibold))
@@ -106,9 +116,13 @@ struct PullRequestRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.white.opacity(hovering ? 0.10 : 0.07), in: RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        // A click on the row opens the review panel (the buttons on the right do their own thing).
+        .onTapGesture { Task { await controller.openReview(pullRequest) } }
         .onHover { hovering = $0 }
         .contextMenu {
+            Button("Review…") { Task { await controller.openReview(pullRequest) } }
             Button("Copy link") { controller.copyLink(of: pullRequest) }
             Button("Copy title and link") { controller.copyTitleAndLink(of: pullRequest) }
             Button("Copy as Markdown") { controller.copyMarkdown(of: pullRequest) }

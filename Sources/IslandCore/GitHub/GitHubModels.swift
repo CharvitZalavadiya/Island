@@ -65,6 +65,12 @@ public struct GitHubRepoRef: Equatable, Hashable, Sendable {
 
     public var fullName: String { "\(owner)/\(name)" }
 
+    /// From the `owner/name` GitHub gives for a repository.
+    public init(fullName: String) {
+        let parts = fullName.split(separator: "/", maxSplits: 1).map(String.init)
+        self.init(owner: parts.first ?? "", name: parts.count > 1 ? parts[1] : "")
+    }
+
     /// Reads `owner/name`, a repository link (`https://github.com/owner/name`, with or without more after it, such as a
     /// pull request link) or `github.com/owner/name`. Nil for anything else.
     public static func parse(_ text: String) -> GitHubRepoRef? {
@@ -163,6 +169,91 @@ public struct GitHubPullRequest: Equatable, Identifiable, Sendable {
     /// The title and the link on two lines: what to paste into a chat to send someone the pull request.
     public var titleAndLink: String {
         "\(title)\n\(url.absoluteString)"
+    }
+}
+
+/// What a review says. The raw values are what GitHub's API calls them.
+public enum GitHubReviewEvent: String, Equatable, Sendable {
+    case approve = "APPROVE"
+    /// GitHub's name for rejecting: the author is asked to change something before it can be merged.
+    case requestChanges = "REQUEST_CHANGES"
+    case comment = "COMMENT"
+
+    /// GitHub refuses a request for changes, or a plain comment, that says nothing.
+    public var needsComment: Bool { self != .approve }
+}
+
+/// One review someone left on a pull request.
+public struct GitHubReview: Equatable, Identifiable, Sendable {
+    public enum Verdict: Equatable, Sendable {
+        case approved
+        case changesRequested
+        case commented
+        /// An earlier review that was withdrawn by someone with the right to.
+        case dismissed
+        /// Started but not sent yet.
+        case pending
+    }
+
+    public var id: Int
+    public var authorLogin: String
+    public var verdict: Verdict
+    public var submittedAt: Date?
+
+    public init(id: Int, authorLogin: String, verdict: Verdict, submittedAt: Date? = nil) {
+        self.id = id
+        self.authorLogin = authorLogin
+        self.verdict = verdict
+        self.submittedAt = submittedAt
+    }
+}
+
+/// Everything the review panel shows about one pull request.
+public struct GitHubPullRequestDetails: Equatable, Sendable {
+    public var pullRequest: GitHubPullRequest
+    /// Its description, as written (Markdown).
+    public var body: String
+    public var commits: Int
+    public var changedFiles: Int
+    public var additions: Int
+    public var deletions: Int
+    /// Known to clash with its base branch (GitHub says so only once it has worked it out).
+    public var hasConflicts: Bool
+    public var reviews: [GitHubReview]
+
+    public init(
+        pullRequest: GitHubPullRequest, body: String = "", commits: Int = 0, changedFiles: Int = 0, additions: Int = 0, deletions: Int = 0,
+        hasConflicts: Bool = false, reviews: [GitHubReview] = []
+    ) {
+        self.pullRequest = pullRequest
+        self.body = body
+        self.commits = commits
+        self.changedFiles = changedFiles
+        self.additions = additions
+        self.deletions = deletions
+        self.hasConflicts = hasConflicts
+        self.reviews = reviews
+    }
+
+    /// Where `login` stands: their latest approval, request for changes or dismissal. A plain comment does not change
+    /// where someone stands, and a review not yet sent does not count.
+    public func standing(of login: String) -> GitHubReview? {
+        reviews
+            .filter { $0.authorLogin.lowercased() == login.lowercased() && ($0.verdict == .approved || $0.verdict == .changesRequested || $0.verdict == .dismissed) }
+            .max { ($0.submittedAt ?? .distantPast) < ($1.submittedAt ?? .distantPast) }
+    }
+
+    /// The reviewers whose latest word is an approval, and the ones whose latest word asks for changes.
+    public var approvers: [String] { latestVerdicts(.approved) }
+    public var changeRequesters: [String] { latestVerdicts(.changesRequested) }
+
+    private func latestVerdicts(_ wanted: GitHubReview.Verdict) -> [String] {
+        var seen = Set<String>()
+        var names: [String] = []
+        for review in reviews where seen.insert(review.authorLogin.lowercased()).inserted {
+            if standing(of: review.authorLogin)?.verdict == wanted { names.append(review.authorLogin) }
+        }
+        return names
     }
 }
 

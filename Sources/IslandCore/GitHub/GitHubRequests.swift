@@ -131,6 +131,26 @@ public enum GitHubRequests {
         graphQL(token: token, query: pullRequestByNumberQuery, variables: ["owner": repo.owner, "name": repo.name, "number": number])
     }
 
+    /// The reviews left on a pull request.
+    public static func reviews(token: String, _ repo: GitHubRepoRef, number: Int) -> URLRequest {
+        get("/repos/\(repo.owner)/\(repo.name)/pulls/\(number)/reviews", token: token, query: [("per_page", "100")])
+    }
+
+    /// Sends a review on a pull request: an approval, a request for changes, or a comment. This is the one request that
+    /// speaks for the person on someone else's work, so Island only sends it after the person pressed the button twice.
+    public static func submitReview(
+        token: String, _ repo: GitHubRepoRef, number: Int, event: GitHubReviewEvent, body: String
+    ) -> URLRequest {
+        var request = request("/repos/\(repo.owner)/\(repo.name)/pulls/\(number)/reviews", token: token, query: [])
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var payload: [String: Any] = ["event": event.rawValue]
+        let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { payload["body"] = text }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        return request
+    }
+
     /// One pull request by its number, without the status (what to use if GraphQL cannot be).
     public static func pullRequest(token: String, _ repo: GitHubRepoRef, number: Int) -> URLRequest {
         get("/repos/\(repo.owner)/\(repo.name)/pulls/\(number)", token: token)

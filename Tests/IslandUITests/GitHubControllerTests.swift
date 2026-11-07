@@ -31,6 +31,13 @@ private final class FakeGitHub: GitHubAPI, @unchecked Sendable {
     var searchAnswers: [String: [GitHubPullRequest]] = [:]
     var searchDefault: [GitHubPullRequest] = []
     var numbered: [Int: GitHubPullRequest] = [:]
+    /// What opening a pull request for review shows (by its number).
+    var details: [Int: GitHubPullRequestDetails] = [:]
+    var detailsFailure: Error?
+    /// Thrown when a review is sent.
+    var reviewFailure: Error?
+    /// Holds the details of one pull request back until released.
+    var detailsGate: (number: Int, gate: SearchGate)?
     /// Holds every search until released, so a test can make an answer arrive late.
     var searchGate: SearchGate?
     /// Waits (once) in `compare` for the head named, so a test can make an answer arrive late.
@@ -87,6 +94,20 @@ private final class FakeGitHub: GitHubAPI, @unchecked Sendable {
         record("pr:\(repo.fullName)#\(number)")
         try check()
         return numbered[number]
+    }
+    func pullRequestDetails(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> GitHubPullRequestDetails {
+        record("details:\(repo.fullName)#\(number)")
+        try check()
+        if let detailsGate, detailsGate.number == number { await detailsGate.gate.wait() }
+        if let detailsFailure { throw detailsFailure }
+        return details[number] ?? GitHubPullRequestDetails(pullRequest: numbered[number] ?? GitHubPullRequest(number: number, title: "t", url: URL(string: "https://github.com/\(repo.fullName)/pull/\(number)")!, repoFullName: repo.fullName))
+    }
+    func submitReview(token: String, _ repo: GitHubRepoRef, number: Int, event: GitHubReviewEvent, body: String) async throws -> GitHubReview {
+        record("review:\(repo.fullName)#\(number):\(event.rawValue):\(body.isEmpty ? "-" : body)")
+        try check()
+        if let reviewFailure { throw reviewFailure }
+        let verdict: GitHubReview.Verdict = switch event { case .approve: .approved; case .requestChanges: .changesRequested; case .comment: .commented }
+        return GitHubReview(id: 900 + number, authorLogin: who.login, verdict: verdict, submittedAt: clock)
     }
 }
 
@@ -618,4 +639,164 @@ private actor Gate {
     #expect(controller.pickableRepos(matching: "").count == 2)
     await controller.selectRepo(controller.repos[3])
     #expect(controller.repo?.fullName == "octocat/blog" && controller.base == "master")
+}
+
+
+// MARK: Reviewing a pull request
+
+private func theirs(_ number: Int = 1204, author: String = "ravi-k", state: GitHubPullRequest.State = .open) -> GitHubPullRequest {
+    GitHubPullRequest(number: number, title: "Invoice rounding", url: URL(string: "https://github.com/acme/app/pull/\(number)")!, state: state, repoFullName: "acme/app", authorLogin: author, headBranch: "feat/x", baseBranch: "main")
+}
+
+@Test @MainActor func openingAPullRequestLoadsItsDetailsAndTheReviewsOnIt() async {
+    let api = FakeGitHub()
+    var details = GitHubPullRequestDetails(pullRequest: theirs(), body: "Rounds totals.", commits: 3, changedFiles: 5, additions: 40, deletions: 8)
+    details.reviews = [GitHubReview(id: 1, authorLogin: "priya", verdict: .approved, submittedAt: clock), GitHubReview(id: 2, authorLogin: "octocat", verdict: .changesRequested, submittedAt: clock)]
+    api.details[1204] = details
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(theirs())
+    #expect(api.calls.contains("details:acme/app#1204"))
+    #expect(controller.reviewTarget?.number == 1204 && controller.reviewDetails?.commits == 3 && !controller.isLoadingReview)
+    #expect(controller.myStanding?.verdict == .changesRequested)               // the account is "octocat"
+    #expect(controller.reviewDetails?.approvers == ["priya"])
+    #expect(controller.canSubmit(.approve) && !controller.canSubmit(.requestChanges))   // changes need a comment first
+}
+
+@Test @MainActor func approvingNeedsTwoPressesAndSendsExactlyOnce() async {
+    let api = FakeGitHub()
+    api.mine = [pull(1, "Mine")]
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(theirs())
+    await controller.pressReviewButton(.approve)
+    #expect(controller.confirming == .approve && !api.calls.contains { $0.hasPrefix("review:") })   // the first press only asks
+    await controller.pressReviewButton(.approve)
+    #expect(api.calls.filter { $0.hasPrefix("review:") } == ["review:acme/app#1204:APPROVE:-"])
+    #expect(controller.reviewSubmission == .done(.approve) && controller.confirming == nil)
+    #expect(controller.myStanding?.verdict == .approved)                            // shown at once
+    #expect(api.calls.filter { $0 == "lists" }.count >= 2)                          // the lists were refreshed afterwards
+}
+
+@Test @MainActor func theSecondPressMustComeSoonOrTheQuestionLapses() async {
+    let api = FakeGitHub()
+    let made = make(api: api, tokens: FakeTokens(stored: "tok"))
+    let controller = made.0
+    await controller.start()
+    // (a short window for the test)
+    let quick = GitHubController(api: api, tokens: FakeTokens(stored: "tok"), now: { clock }, refreshInterval: 0, confirmationSeconds: 0.15, writeToClipboard: { _ in })
+    await quick.start()
+    await quick.openReview(theirs())
+    await quick.pressReviewButton(.approve)
+    #expect(quick.confirming == .approve)
+    var lapsed = false
+    for _ in 0..<300 where !lapsed { try? await Task.sleep(nanoseconds: 10_000_000); lapsed = quick.confirming == nil }
+    #expect(lapsed)
+    await quick.pressReviewButton(.approve)                                         // a late press starts the question again
+    #expect(quick.confirming == .approve && !api.calls.contains { $0.hasPrefix("review:") })
+}
+
+@Test @MainActor func pressingADifferentActionMovesTheQuestionInsteadOfSending() async {
+    let api = FakeGitHub()
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(theirs())
+    controller.reviewComment = "Please add a test."
+    await controller.pressReviewButton(.approve)
+    await controller.pressReviewButton(.requestChanges)                              // not the same action: asks about this one now
+    #expect(controller.confirming == .requestChanges && !api.calls.contains { $0.hasPrefix("review:") })
+    await controller.pressReviewButton(.requestChanges)
+    #expect(api.calls.contains("review:acme/app#1204:REQUEST_CHANGES:Please add a test."))
+    #expect(controller.reviewComment.isEmpty && controller.reviewSubmission == .done(.requestChanges))
+}
+
+@Test @MainActor func requestingChangesOrCommentingNeedsSomethingWritten() async {
+    let api = FakeGitHub()
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(theirs())
+    controller.reviewComment = "   \n "
+    #expect(!controller.canSubmit(.requestChanges) && !controller.canSubmit(.comment) && controller.canSubmit(.approve))
+    await controller.pressReviewButton(.requestChanges)
+    await controller.pressReviewButton(.comment)
+    #expect(controller.confirming == nil && !api.calls.contains { $0.hasPrefix("review:") })
+    controller.reviewComment = "Looks odd to me."
+    await controller.pressReviewButton(.comment)                                     // a comment is sent at once, no second press
+    #expect(api.calls.contains("review:acme/app#1204:COMMENT:Looks odd to me."))
+}
+
+@Test @MainActor func yourOwnPullRequestCanBeCommentedOnButNotApproved() async {
+    let api = FakeGitHub()
+    api.details[1204] = GitHubPullRequestDetails(pullRequest: theirs(author: "OCTOCAT"))     // as GitHub would answer
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(theirs(author: "OCTOCAT"))                           // the account is octocat (any capitals)
+    #expect(controller.isOwnPullRequest && controller.reviewBlockReason?.contains("your own pull request") == true)
+    controller.reviewComment = "Note to self"
+    #expect(!controller.canSubmit(.approve) && !controller.canSubmit(.requestChanges) && controller.canSubmit(.comment))
+    await controller.pressReviewButton(.approve)
+    #expect(controller.confirming == nil && !api.calls.contains { $0.hasPrefix("review:") })
+}
+
+@Test @MainActor func aClosedOrMergedPullRequestCannotBeApproved() async {
+    let api = FakeGitHub()
+    let (controller, _, _, _) = await connected(api)
+    for (state, reason) in [(GitHubPullRequest.State.merged, "already merged"), (.closed, "is closed")] {
+        api.details[1204] = GitHubPullRequestDetails(pullRequest: theirs(state: state))      // as GitHub would answer
+        await controller.openReview(theirs(state: state))
+        #expect(controller.reviewBlockReason?.contains(reason) == true && !controller.canSubmit(.approve))
+    }
+    api.details[1204] = GitHubPullRequestDetails(pullRequest: theirs(state: .open))
+    await controller.openReview(theirs(state: .open))
+    #expect(controller.reviewBlockReason == nil && controller.canSubmit(.approve))
+}
+
+@Test @MainActor func aRefusedReviewKeepsWhatWasWrittenAndSaysWhy() async {
+    let api = FakeGitHub()
+    api.reviewFailure = GitHubError.validation("Review can't be submitted on a pull request that has been closed")
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(theirs())
+    controller.reviewComment = "Please add a test."
+    await controller.pressReviewButton(.requestChanges)
+    await controller.pressReviewButton(.requestChanges)
+    #expect(controller.reviewSubmission == .idle && controller.reviewComment == "Please add a test." && controller.confirming == nil)
+    #expect(controller.message == .init(text: "Review can't be submitted on a pull request that has been closed", isError: true, action: nil))
+
+    api.reviewFailure = GitHubError.network("offline")
+    await controller.pressReviewButton(.comment)
+    #expect(controller.message?.text == "Couldn't reach GitHub, so Island couldn't send the review." && controller.reviewComment == "Please add a test.")
+}
+
+@Test @MainActor func aLateAnswerForAPullRequestYouLeftIsIgnored() async {
+    let api = FakeGitHub()
+    let release = SearchGate()
+    api.detailsGate = (number: 1204, gate: release)
+    api.details[1204] = GitHubPullRequestDetails(pullRequest: theirs(1204), commits: 99)
+    api.details[77] = GitHubPullRequestDetails(pullRequest: theirs(77), commits: 2)
+    let (controller, _, _, _) = await connected(api)
+    let slow = Task { await controller.openReview(theirs(1204)) }
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    await controller.openReview(theirs(77))                                          // the person opened another one meanwhile
+    await release.open()
+    await slow.value
+    #expect(controller.reviewTarget?.number == 77 && controller.reviewDetails?.commits == 2 && !controller.isLoadingReview)
+}
+
+@Test @MainActor func closingThePanelAndDisconnectingForgetEverything() async {
+    let api = FakeGitHub()
+    let (controller, _, tokens, _) = await connected(api)
+    await controller.openReview(theirs())
+    controller.reviewComment = "draft thoughts"
+    await controller.pressReviewButton(.approve)
+    controller.closeReview()
+    #expect(controller.reviewTarget == nil && controller.reviewDetails == nil && controller.reviewComment.isEmpty && controller.confirming == nil)
+
+    await controller.openReview(theirs())
+    controller.disconnect()
+    #expect(controller.reviewTarget == nil && tokens.stored == nil)
+}
+
+@Test @MainActor func aRevokedTokenWhileSendingBringsTheConnectScreenBack() async {
+    let api = FakeGitHub()
+    let (controller, _, tokens, _) = await connected(api)
+    await controller.openReview(theirs())
+    api.reviewFailure = GitHubError.unauthorized
+    await controller.pressReviewButton(.approve)
+    await controller.pressReviewButton(.approve)
+    #expect(controller.connection == .disconnected && tokens.stored == nil && controller.reviewTarget == nil)
 }

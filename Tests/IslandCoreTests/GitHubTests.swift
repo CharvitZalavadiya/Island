@@ -391,3 +391,78 @@ private let graphQLAnswer = """
     #expect(plan("0") != .number(0))                                                         // not a pull request number
     if case .number = plan("OPS-19583") { Issue.record("a ticket id was taken as a number") }
 }
+
+// MARK: Reviewing a pull request
+
+// Trimmed copies of a real pull request and its reviews from api.github.com (swiftlang/swift#77261).
+private let realDetailedPull = #"{"number": 77261, "title": "Cherrypick fixes for issue 74866 to release/6.0", "state": "closed", "draft": false, "html_url": "https://github.com/swiftlang/swift/pull/77261", "merged_at": "2024-12-02T21:33:22Z", "updated_at": "2024-12-02T21:33:22Z", "body": "  - **Explanation**: This PR cherrypicks the fixes for the Bridged C++ class", "commits": 4, "additions": 299, "deletions": 34, "changed_files": 16, "mergeable": null, "mergeable_state": "unknown", "merged": true, "user": {"login": "hjyamauchi"}, "head": {"ref": "release/6.0"}, "base": {"ref": "release/6.0", "repo": {"full_name": "swiftlang/swift"}}}"#
+private let realReviews = #"[{"id": 2436955794, "user": {"login": "airspeedswift"}, "state": "APPROVED", "submitted_at": "2024-11-14T18:52:35Z", "body": ""}, {"id": 2473983521, "user": {"login": "DougGregor"}, "state": "APPROVED", "submitted_at": "2024-12-02T21:33:14Z", "body": ""}]"#
+
+@Test func aPullRequestIsReadWithItsNumbersDescriptionAndReviews() throws {
+    let details = try GitHubDecoding.pullRequestDetails(pull: data(realDetailedPull), reviews: data(realReviews))
+    #expect(details.pullRequest.number == 77261 && details.pullRequest.state == .merged && details.pullRequest.authorLogin == "hjyamauchi")
+    #expect(details.pullRequest.headBranch == "release/6.0" && details.pullRequest.repoFullName == "swiftlang/swift")
+    #expect(details.commits == 4 && details.changedFiles == 16 && details.additions == 299 && details.deletions == 34)
+    #expect(details.body.hasPrefix("  - **Explanation**") && !details.hasConflicts)               // mergeable null = not known to clash
+    #expect(details.reviews.map(\.authorLogin) == ["airspeedswift", "DougGregor"] && details.reviews.allSatisfy { $0.verdict == .approved })
+    #expect(details.reviews[0].submittedAt == ISO8601DateFormatter().date(from: "2024-11-14T18:52:35Z"))
+    #expect(details.approvers == ["airspeedswift", "DougGregor"] && details.changeRequesters.isEmpty)
+}
+
+@Test func aPullRequestKnownToClashIsToldSo() throws {
+    let clashing = realDetailedPull.replacingOccurrences(of: #""mergeable": null"#, with: #""mergeable": false"#)
+    #expect(try GitHubDecoding.pullRequestDetails(pull: data(clashing), reviews: data("[]")).hasConflicts)
+    let fine = realDetailedPull.replacingOccurrences(of: #""mergeable": null"#, with: #""mergeable": true"#)
+    #expect(try GitHubDecoding.pullRequestDetails(pull: data(fine), reviews: data("[]")).hasConflicts == false)
+    #expect(throws: GitHubError.unreadable) { try GitHubDecoding.pullRequestDetails(pull: data("<html>"), reviews: data("[]")) }
+    #expect(throws: GitHubError.unreadable) { try GitHubDecoding.pullRequestDetails(pull: data(realDetailedPull), reviews: data(#"{"message": "x"}"#)) }
+}
+
+@Test func everyKindOfReviewIsRead() throws {
+    func verdict(_ state: String) throws -> GitHubReview.Verdict {
+        try GitHubDecoding.review(from: data(#"{"id": 1, "user": {"login": "a"}, "state": "\#(state)", "submitted_at": "2026-11-07T10:00:00Z"}"#)).verdict
+    }
+    #expect(try verdict("APPROVED") == .approved && verdict("CHANGES_REQUESTED") == .changesRequested)
+    #expect(try verdict("COMMENTED") == .commented && verdict("DISMISSED") == .dismissed && verdict("PENDING") == .pending)
+    #expect(try verdict("SOMETHING_NEW") == .commented)                                           // an unknown kind is only a comment
+    #expect(throws: GitHubError.unreadable) { try GitHubDecoding.review(from: data(#"{"message": "Not Found"}"#)) }
+}
+
+@Test func whereAReviewerStandsIsTheirLatestWordNotTheirLatestComment() {
+    let pull = GitHubPullRequest(number: 1, title: "t", url: URL(string: "https://github.com/o/r/pull/1")!, repoFullName: "o/r")
+    func at(_ day: Int) -> Date { Date(timeIntervalSince1970: Double(day) * 86_400) }
+    let details = GitHubPullRequestDetails(pullRequest: pull, reviews: [
+        GitHubReview(id: 1, authorLogin: "Ravi", verdict: .changesRequested, submittedAt: at(1)),
+        GitHubReview(id: 2, authorLogin: "ravi", verdict: .approved, submittedAt: at(3)),            // changed their mind (any capitals)
+        GitHubReview(id: 3, authorLogin: "ravi", verdict: .commented, submittedAt: at(4)),           // a later comment changes nothing
+        GitHubReview(id: 4, authorLogin: "priya", verdict: .approved, submittedAt: at(2)),
+        GitHubReview(id: 5, authorLogin: "priya", verdict: .dismissed, submittedAt: at(5)),          // her approval was withdrawn
+        GitHubReview(id: 6, authorLogin: "meera", verdict: .changesRequested, submittedAt: at(2)),
+        GitHubReview(id: 7, authorLogin: "sam", verdict: .commented, submittedAt: at(2)),
+        GitHubReview(id: 8, authorLogin: "pat", verdict: .pending, submittedAt: nil),
+    ])
+    #expect(details.standing(of: "RAVI")?.verdict == .approved)
+    #expect(details.standing(of: "priya")?.verdict == .dismissed)
+    #expect(details.standing(of: "sam") == nil && details.standing(of: "pat") == nil && details.standing(of: "nobody") == nil)
+    #expect(details.approvers.map { $0.lowercased() } == ["ravi"])        // logins are not case-sensitive
+    #expect(details.changeRequesters == ["meera"])
+}
+
+@Test func theReviewRequestsAreExact() throws {
+    let repo = GitHubRepoRef(owner: "shipmnts", name: "finance")
+    let list = GitHubRequests.reviews(token: "t", repo, number: 1204)
+    #expect(list.url?.absoluteString == "https://api.github.com/repos/shipmnts/finance/pulls/1204/reviews?per_page=100")
+
+    func sent(_ request: URLRequest) throws -> [String: Any] {
+        try #require(try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])
+    }
+    let approve = GitHubRequests.submitReview(token: "ghp_secret", repo, number: 1204, event: .approve, body: "   ")
+    #expect(approve.httpMethod == "POST" && approve.url?.absoluteString == "https://api.github.com/repos/shipmnts/finance/pulls/1204/reviews")
+    #expect(try sent(approve).count == 1 && (try sent(approve))["event"] as? String == "APPROVE")        // no empty body sent
+    #expect(String(data: approve.httpBody ?? Data(), encoding: .utf8)?.contains("ghp_secret") == false)
+
+    let changes = GitHubRequests.submitReview(token: "t", repo, number: 1204, event: .requestChanges, body: "  Please add a test.\n")
+    #expect(try sent(changes)["event"] as? String == "REQUEST_CHANGES" && (try sent(changes))["body"] as? String == "Please add a test.")
+    #expect(try sent(GitHubRequests.submitReview(token: "t", repo, number: 1, event: .comment, body: "Looks odd"))["event"] as? String == "COMMENT")
+    #expect(GitHubReviewEvent.approve.needsComment == false && GitHubReviewEvent.requestChanges.needsComment && GitHubReviewEvent.comment.needsComment)
+}

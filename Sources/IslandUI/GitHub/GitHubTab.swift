@@ -19,6 +19,7 @@ struct GitHubTab: View {
         .task { await controller.start() }
         .onDisappear { controller.stop() }
         .onChange(of: controller.section) { _, _ in
+            controller.closeReview()   // choosing another section leaves the review panel
             Task { await controller.loadForCurrentSection() }
         }
     }
@@ -30,6 +31,8 @@ struct GitHubTab: View {
             Color.clear.frame(maxHeight: .infinity)
         } else if controller.connection != .connected {
             GitHubConnectCard(controller: controller)
+        } else if controller.reviewTarget != nil {
+            PullRequestReviewView(controller: controller)
         } else {
             switch controller.section {
             case .newPullRequest:

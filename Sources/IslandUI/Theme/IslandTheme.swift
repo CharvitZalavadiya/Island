@@ -22,6 +22,8 @@ enum IslandTheme {
     static let ambient = Color(hex: 0x2DD4BF)
     /// Tasks: a fresh green for ticking things off.
     static let tasks = Color(hex: 0x4ADE80)
+    /// Todoist's own red, for its connect card.
+    static let todoist = Color(hex: 0xE44332)
     /// Stats: a colour for each reading.
     static let statCPU = Color(hex: 0x34D399)
     static let statMemory = Color(hex: 0xA78BFA)

@@ -25,7 +25,7 @@ func tabView(for tab: IslandTab, services: IslandServices) -> some View {
     case .calendar:
         CalendarTab(controller: services.calendar)
     case .tasks:
-        TasksTab(controller: services.tasks)
+        TasksTab(controller: services.tasks, todoist: services.todoist, settings: services.settings)
     case .awake:
         AwakeTab(services: services)
     case .base64:

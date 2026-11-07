@@ -22,6 +22,8 @@ public struct Settings: Codable, Equatable {
     /// While music or a video plays, the minimal view (the wings beside the notch) shows the app's icon with the track's
     /// progress, and a little animated equalizer.
     public var mediaInMinimalView = true
+    /// Which tasks the Tasks tab shows: "local" (Island's own list) or "todoist".
+    public var tasksSource = "local"
 
     public static let focusMinutesRange = 1...180
     public static let shortBreakMinutesRange = 1...60
@@ -32,7 +34,7 @@ public struct Settings: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case hoverOpens, collapseDelay, mascotID, shuffleMascots, focusMinutes, shortBreakMinutes, longBreakMinutes
         case longBreakEvery, autoChain, launchAtLogin, tabOrder, cameraMirrored, lockSounds, ambientSound, ambientVolume
-        case mediaInMinimalView
+        case mediaInMinimalView, tasksSource
     }
 
     /// Every key is optional, so a settings file written by an older Island (which had fewer keys) keeps the user's
@@ -60,6 +62,7 @@ public struct Settings: Codable, Equatable {
         ambientSound = try values.decodeIfPresent(String.self, forKey: .ambientSound) ?? ambientSound
         ambientVolume = Self.clamp(try values.decodeIfPresent(Double.self, forKey: .ambientVolume) ?? ambientVolume, 0...1)
         mediaInMinimalView = try values.decodeIfPresent(Bool.self, forKey: .mediaInMinimalView) ?? mediaInMinimalView
+        tasksSource = try values.decodeIfPresent(String.self, forKey: .tasksSource) ?? tasksSource
     }
 
     private static func clamp<T: Comparable>(_ value: T, _ range: ClosedRange<T>) -> T {

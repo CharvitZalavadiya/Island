@@ -1,33 +1,76 @@
 import SwiftUI
 import IslandCore
 
-/// The Tasks tab: add a task (with an optional time), tick it off, and look back at what is done. A switch at the top,
-/// like the Pomodoro's, changes between the Active and the Completed list.
+/// Which tasks the Tasks tab shows: Island's own list, or the person's Todoist.
+enum TasksSource: String, Hashable {
+    case local
+    case todoist
+}
+
+/// The Tasks tab. A switch at the top changes between the Active and the Completed list, like the Pomodoro's; a second one
+/// at the right changes between Island's own tasks (Local) and the person's Todoist. The choice is remembered.
 struct TasksTab: View {
     @Bindable var controller: TasksController
+    @Bindable var todoist: TodoistController
+    let settings: SettingsStore
 
-    @State private var title = ""
-    @State private var due: Date?
-    @State private var showsPicker = false
-    @State private var selection = DueTimeSelection(rounding: Date().addingTimeInterval(3600))
-    @FocusState private var titleFocused: Bool
+    private var source: TasksSource { TasksSource(rawValue: settings.settings.tasksSource) ?? .local }
+
+    private var sourceBinding: Binding<TasksSource> {
+        Binding(get: { source }, set: { chosen in settings.update { $0.tasksSource = chosen.rawValue } })
+    }
 
     var body: some View {
         VStack(spacing: 10) {
-            HStack {
+            header
+            switch source {
+            case .local: LocalTasksContent(controller: controller)
+            case .todoist: TodoistPane(todoist: todoist)
+            }
+        }
+        .foregroundStyle(.white)
+        // Todoist is only asked about while its view is on screen: opening the tab on Todoist loads it, leaving stops it.
+        .task(id: source) {
+            if source == .todoist { await todoist.start() } else { todoist.stop() }
+        }
+        .onDisappear { todoist.stop() }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            switch source {
+            case .local:
                 TaskModeSwitch(
                     mode: $controller.mode, activeCount: controller.activeCount, completedCount: controller.completedCount)
-                Spacer(minLength: 4)
-                if controller.mode == .completed, controller.completedCount > 0 {
-                    PillButton(title: "Clear completed", prominent: false, tint: IslandTheme.danger) {
-                        controller.clearCompleted()
-                    }
+            case .todoist:
+                if todoist.connection == .connected {
+                    TaskModeSwitch(
+                        mode: $todoist.mode, activeCount: todoist.activeCount, completedCount: todoist.completedCount)
                 }
             }
+            Spacer(minLength: 4)
+            if source == .local, controller.mode == .completed, controller.completedCount > 0 {
+                PillButton(title: "Clear completed", prominent: false, tint: IslandTheme.danger) {
+                    controller.clearCompleted()
+                }
+            }
+            if source == .todoist, todoist.connection == .connected { TodoistMenu(todoist: todoist) }
+            PillSwitch(selection: sourceBinding, options: [(.local, "Local"), (.todoist, "Todoist")], tint: IslandTheme.tasks)
+        }
+    }
+}
 
+/// Island's own list: add a task (with an optional time), tick it off, and look back at what is done.
+struct LocalTasksContent: View {
+    @Bindable var controller: TasksController
+
+    var body: some View {
+        VStack(spacing: 10) {
             if controller.mode == .active {
-                addRow
-                if showsPicker { pickerRow }
+                TaskComposer(placeholder: "Add a task") { title, due in
+                    controller.add(title: title, due: due)
+                    return true
+                }
             }
 
             let tasks = controller.visible
@@ -48,108 +91,10 @@ struct TasksTab: View {
                 .scrollIndicators(.hidden)
             }
         }
-        .foregroundStyle(.white)
-        // Typing needs Island to be the active app; this only happens when the box gets focus.
-        .onChange(of: titleFocused) { _, focused in
-            if focused { NSApp.activate(ignoringOtherApps: true) }
-        }
     }
 
     private var emptyText: String {
         controller.mode == .active ? "Nothing to do. Add a task above." : "Nothing completed yet."
-    }
-
-    // MARK: Adding
-
-    private var addRow: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "plus").foregroundStyle(IslandTheme.tasks)
-                TextField("Add a task", text: $title)
-                    .textFieldStyle(.plain)
-                    .focused($titleFocused)
-                    .onSubmit(add)
-                if let due {
-                    let label = TaskDue.label(for: due, now: Date())
-                    Button { self.due = nil } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock")
-                            Text(label.text)
-                            Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-                        }
-                        .font(.system(size: 11, weight: .semibold))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(IslandTheme.tasks.opacity(0.2), in: Capsule())
-                        .foregroundStyle(IslandTheme.tasks)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Remove the time")
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .background(Color.white.opacity(0.1), in: Capsule())
-
-            timeMenu
-            Button(action: add) {
-                Text("Add")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.black)
-                    .padding(.horizontal, 14)
-                    .frame(height: 30)
-                    .background(IslandTheme.tasks.opacity(trimmedTitle.isEmpty ? 0.35 : 1), in: Capsule())
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(trimmedTitle.isEmpty)
-        }
-    }
-
-    private var timeMenu: some View {
-        Menu {
-            ForEach(TaskDue.presets(now: Date()), id: \.title) { preset in
-                Button(preset.title) { due = preset.date }
-            }
-            Divider()
-            Button("Pick date and time…") {
-                selection = DueTimeSelection(rounding: due ?? Date().addingTimeInterval(3600))
-                showsPicker = true
-            }
-            if due != nil { Button("No time") { due = nil } }
-        } label: {
-            Image(systemName: "clock")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(IslandTheme.tasks)
-                .frame(width: 30, height: 30)
-                .background(IslandTheme.tasks.opacity(0.18), in: Circle())
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Set a time for this task")
-    }
-
-    private var pickerRow: some View {
-        TaskTimePicker(
-            selection: $selection, now: Date(),
-            onSet: {
-                due = selection.date()
-                showsPicker = false
-            },
-            onCancel: { showsPicker = false })
-    }
-
-    private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-    private func add() {
-        guard !trimmedTitle.isEmpty else { return }
-        controller.add(title: title, due: due)
-        title = ""
-        due = nil
     }
 }
 

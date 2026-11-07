@@ -20,6 +20,8 @@ public final class IslandServices {
     let alerts: AlertScheduler
     let lockSounds: LockSoundController
     let tasks: TasksController
+    let todoist: TodoistController
+    let settings: SettingsStore
     let ambient: AmbientPlayer
     let processTools: ProcessToolsController
     let textTools: TextToolsController
@@ -72,6 +74,8 @@ public final class IslandServices {
         tools = ToolsController()
         nowPlaying = NowPlayingController()
         mediaMonitor = MediaActivityMonitor(player: nowPlaying, model: model)
+        todoist = TodoistController()
+        settings = model.settings
         tasks = TasksController(
             store: TaskStore(store: FileStore(url: supportDirectory.appendingPathComponent("tasks.json"), defaultValue: [])))
         // Allowing calendar access in the Calendar tab starts the alerts at once, no relaunch needed.

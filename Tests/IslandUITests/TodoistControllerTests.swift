@@ -87,7 +87,7 @@ private final class FakeAPI: TodoistAPI, @unchecked Sendable {
     }
 }
 
-private final class FakeTokens: TodoistTokenStoring {
+private final class FakeTokens: TokenStoring {
     var stored: String?
     var saveWorks = true
     private(set) var loads = 0

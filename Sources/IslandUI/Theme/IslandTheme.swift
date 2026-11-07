@@ -24,6 +24,8 @@ enum IslandTheme {
     static let tasks = Color(hex: 0x4ADE80)
     /// Todoist's own red, for its connect card.
     static let todoist = Color(hex: 0xE44332)
+    /// The GitHub tab (the purple GitHub uses for pull requests).
+    static let github = Color(hex: 0xA371F7)
     /// Stats: a colour for each reading.
     static let statCPU = Color(hex: 0x34D399)
     static let statMemory = Color(hex: 0xA78BFA)

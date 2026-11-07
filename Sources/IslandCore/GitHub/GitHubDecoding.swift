@@ -1,0 +1,237 @@
+import Foundation
+
+/// Reads what GitHub's API sends back. Lenient on purpose: a field that is missing or new never stops a list loading.
+public enum GitHubDecoding {
+    // MARK: What the wire looks like
+
+    private struct WireOwner: Decodable { var login: String? }
+    private struct WirePermissions: Decodable { var push: Bool?; var admin: Bool?; var maintain: Bool? }
+
+    private struct WireRepo: Decodable {
+        var id: Int?
+        var name: String?
+        var fullName: String?
+        var owner: WireOwner?
+        var defaultBranch: String?
+        var isPrivate: Bool?
+        var archived: Bool?
+        var disabled: Bool?
+        var permissions: WirePermissions?
+        var pushedAt: String?
+        var description: String?
+        var hasPullRequests: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case id, name, owner, archived, disabled, permissions, description
+            case fullName = "full_name", defaultBranch = "default_branch", isPrivate = "private"
+            case pushedAt = "pushed_at", hasPullRequests = "has_pull_requests"
+        }
+    }
+
+    private struct WireBranch: Decodable {
+        var name: String?
+        var isProtected: Bool?
+        enum CodingKeys: String, CodingKey { case name, isProtected = "protected" }
+    }
+
+    private struct WireRef: Decodable {
+        var ref: String?
+        var repo: WireRepoName?
+    }
+    private struct WireRepoName: Decodable {
+        var fullName: String?
+        enum CodingKeys: String, CodingKey { case fullName = "full_name" }
+    }
+    private struct WirePullLinks: Decodable {
+        var htmlUrl: String?
+        var mergedAt: String?
+        enum CodingKeys: String, CodingKey { case htmlUrl = "html_url", mergedAt = "merged_at" }
+    }
+
+    /// A pull request, from the pull request calls (head and base) or from search (a repository link instead).
+    private struct WirePull: Decodable {
+        var number: Int?
+        var title: String?
+        var htmlUrl: String?
+        var state: String?
+        var draft: Bool?
+        var mergedAt: String?
+        var updatedAt: String?
+        var user: WireOwner?
+        var head: WireRef?
+        var base: WireRef?
+        var repositoryUrl: String?
+        var pullRequest: WirePullLinks?
+
+        enum CodingKeys: String, CodingKey {
+            case number, title, state, draft, user, head, base
+            case htmlUrl = "html_url", mergedAt = "merged_at", updatedAt = "updated_at"
+            case repositoryUrl = "repository_url", pullRequest = "pull_request"
+        }
+    }
+
+    private struct WireSearch: Decodable { var items: [WirePull]? }
+
+    private struct WireCommit: Decodable {
+        var commit: Inner?
+        struct Inner: Decodable { var message: String? }
+    }
+    private struct WireFile: Decodable {}
+    private struct WireComparison: Decodable {
+        var status: String?
+        var aheadBy: Int?
+        var behindBy: Int?
+        var totalCommits: Int?
+        var commits: [WireCommit]?
+        var files: [WireFile]?
+        enum CodingKeys: String, CodingKey {
+            case status, commits, files
+            case aheadBy = "ahead_by", behindBy = "behind_by", totalCommits = "total_commits"
+        }
+    }
+
+    private struct WireAccount: Decodable { var login: String?; var name: String? }
+
+    // MARK: Public
+
+    public static func account(from data: Data) throws -> GitHubAccount {
+        guard let wire = try? JSONDecoder().decode(WireAccount.self, from: data), let login = wire.login, !login.isEmpty else {
+            throw GitHubError.unreadable
+        }
+        let name = wire.name?.trimmingCharacters(in: .whitespaces)
+        return GitHubAccount(login: login, name: name?.isEmpty == false ? name : nil)
+    }
+
+    public static func repos(from data: Data) throws -> [GitHubRepo] {
+        guard let wires = try? JSONDecoder().decode([WireRepo].self, from: data) else { throw GitHubError.unreadable }
+        return wires.compactMap(repo(from:))
+    }
+
+    public static func repo(from data: Data) throws -> GitHubRepo {
+        guard let wire = try? JSONDecoder().decode(WireRepo.self, from: data), let repo = repo(from: wire) else {
+            throw GitHubError.unreadable
+        }
+        return repo
+    }
+
+    public static func branches(from data: Data) throws -> [GitHubBranch] {
+        guard let wires = try? JSONDecoder().decode([WireBranch].self, from: data) else { throw GitHubError.unreadable }
+        return wires.compactMap { wire in wire.name.map { GitHubBranch(name: $0, isProtected: wire.isProtected ?? false) } }
+    }
+
+    /// The branch from the single-branch call.
+    public static func branch(from data: Data) throws -> GitHubBranch {
+        guard let wire = try? JSONDecoder().decode(WireBranch.self, from: data), let name = wire.name else { throw GitHubError.unreadable }
+        return GitHubBranch(name: name, isProtected: wire.isProtected ?? false)
+    }
+
+    /// A pull request, as the create and get calls answer.
+    public static func pullRequest(from data: Data) throws -> GitHubPullRequest {
+        guard let wire = try? JSONDecoder().decode(WirePull.self, from: data), let pull = pull(from: wire) else {
+            throw GitHubError.unreadable
+        }
+        return pull
+    }
+
+    public static func pullRequests(from data: Data) throws -> [GitHubPullRequest] {
+        guard let wires = try? JSONDecoder().decode([WirePull].self, from: data) else { throw GitHubError.unreadable }
+        return wires.compactMap(pull(from:))
+    }
+
+    /// The pull requests in a search answer (issues that carry a `pull_request` entry).
+    public static func searchedPullRequests(from data: Data) throws -> [GitHubPullRequest] {
+        guard let search = try? JSONDecoder().decode(WireSearch.self, from: data) else { throw GitHubError.unreadable }
+        return (search.items ?? []).filter { $0.pullRequest != nil }.compactMap(pull(from:))
+    }
+
+    public static func comparison(from data: Data) throws -> GitHubComparison {
+        guard let wire = try? JSONDecoder().decode(WireComparison.self, from: data), let status = wire.status else {
+            throw GitHubError.unreadable
+        }
+        return GitHubComparison(
+            status: status, aheadBy: wire.aheadBy ?? 0, behindBy: wire.behindBy ?? 0,
+            totalCommits: wire.totalCommits ?? wire.commits?.count ?? 0, filesChanged: wire.files?.count ?? 0,
+            firstCommitMessage: wire.commits?.first?.commit?.message)
+    }
+
+    /// What an error answer says: its message plus the details of each thing wrong, in one sentence.
+    public static func errorMessage(from data: Data) -> String? {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        var details: [String] = []
+        for entry in (object["errors"] as? [Any]) ?? [] {
+            if let text = entry as? String { details.append(text) }
+            else if let item = entry as? [String: Any] {
+                if let text = item["message"] as? String { details.append(text) }
+                else if let field = item["field"] as? String, let code = item["code"] as? String {
+                    details.append("\(field) is \(code.replacingOccurrences(of: "_", with: " "))")
+                }
+            }
+        }
+        if !details.isEmpty { return details.joined(separator: " ") }
+        return (object["message"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The number of the next page, from the `Link` header ("<…?page=2>; rel=\"next\", <…?page=9>; rel=\"last\"").
+    public static func nextPage(fromLinkHeader header: String?) -> Int? {
+        guard let header else { return nil }
+        for entry in header.split(separator: ",") where entry.contains("rel=\"next\"") {
+            guard let start = entry.firstIndex(of: "<"), let end = entry.firstIndex(of: ">"), start < end,
+                  let components = URLComponents(string: String(entry[entry.index(after: start)..<end])),
+                  let page = components.queryItems?.first(where: { $0.name == "page" })?.value
+            else { continue }
+            return Int(page)
+        }
+        return nil
+    }
+
+    // MARK: Internals
+
+    private static func repo(from wire: WireRepo) -> GitHubRepo? {
+        guard let id = wire.id, let fullName = wire.fullName, let name = wire.name else { return nil }
+        let owner = wire.owner?.login ?? String(fullName.split(separator: "/").first ?? "")
+        let pushable = wire.permissions.map { ($0.push ?? false) || ($0.admin ?? false) || ($0.maintain ?? false) }
+        return GitHubRepo(
+            id: id, fullName: fullName, owner: owner, name: name, defaultBranch: wire.defaultBranch ?? "main",
+            isPrivate: wire.isPrivate ?? false, isArchived: wire.archived ?? false, isDisabled: wire.disabled ?? false,
+            canPush: pushable, pushedAt: wire.pushedAt.flatMap(date), summary: wire.description,
+            hasPullRequests: wire.hasPullRequests ?? true)
+    }
+
+    private static func pull(from wire: WirePull) -> GitHubPullRequest? {
+        guard let number = wire.number, let title = wire.title, let urlText = wire.htmlUrl ?? wire.pullRequest?.htmlUrl,
+              let url = URL(string: urlText)
+        else { return nil }
+        // Pull requests name their repository in `base`; search results only give a link to it.
+        let repoFromLink = wire.repositoryUrl.flatMap { text in text.range(of: "/repos/").map { String(text[$0.upperBound...]) } }
+        guard let repo = wire.base?.repo?.fullName ?? repoFromLink else { return nil }
+        let merged = (wire.mergedAt ?? wire.pullRequest?.mergedAt) != nil
+        return GitHubPullRequest(
+            number: number, title: title, url: url, isDraft: wire.draft ?? false,
+            state: merged ? .merged : (wire.state == "closed" ? .closed : .open), repoFullName: repo,
+            authorLogin: wire.user?.login, headBranch: wire.head?.ref, baseBranch: wire.base?.ref,
+            updatedAt: wire.updatedAt.flatMap(date))
+    }
+
+    private static func date(_ text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)
+    }
+}
+
+public enum GitHubText {
+    /// A title for a pull request from the name of its branch: "feature/add-login_page" becomes "Add login page". Anything
+    /// before the last slash (a "feature/" or a person's name) is dropped.
+    public static func title(fromBranch branch: String) -> String {
+        let last = branch.split(separator: "/", omittingEmptySubsequences: true).last.map(String.init) ?? branch
+        let words = last.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+        guard let first = words.first else { return branch }
+        return first.uppercased() + words.dropFirst()
+    }
+
+    /// The first line of a commit message: what makes a good title.
+    public static func firstLine(of message: String) -> String {
+        message.split(whereSeparator: \.isNewline).first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
+    }
+}

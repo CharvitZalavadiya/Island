@@ -21,6 +21,7 @@ public final class IslandServices {
     let lockSounds: LockSoundController
     let tasks: TasksController
     let todoist: TodoistController
+    let github: GitHubController
     let settings: SettingsStore
     let ambient: AmbientPlayer
     let processTools: ProcessToolsController
@@ -75,6 +76,7 @@ public final class IslandServices {
         nowPlaying = NowPlayingController()
         mediaMonitor = MediaActivityMonitor(player: nowPlaying, model: model)
         todoist = TodoistController()
+        github = GitHubController()
         settings = model.settings
         tasks = TasksController(
             store: TaskStore(store: FileStore(url: supportDirectory.appendingPathComponent("tasks.json"), defaultValue: [])))

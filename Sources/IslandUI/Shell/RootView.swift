@@ -30,6 +30,8 @@ func tabView(for tab: IslandTab, services: IslandServices) -> some View {
         AwakeTab(services: services)
     case .base64:
         TextToolsTab(controller: services.textTools)
+    case .github:
+        GitHubTab(controller: services.github)
     case .tools:
         ToolsTab(controller: services.tools, nowPlaying: services.nowPlaying)
     }

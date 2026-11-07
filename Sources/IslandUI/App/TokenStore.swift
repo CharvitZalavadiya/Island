@@ -1,21 +1,26 @@
 import Foundation
 import Security
 
-/// Where Island keeps the person's Todoist token: somewhere safe, and nowhere else.
-protocol TodoistTokenStoring: AnyObject {
+/// Where Island keeps a person's access token for an outside service (Todoist, GitHub): somewhere safe, and nowhere else.
+protocol TokenStoring: AnyObject {
     func load() -> String?
     /// Returns false when the token could not be kept.
     func save(_ token: String) -> Bool
     func delete()
 }
 
-/// The token in the Mac's Keychain, the place macOS keeps passwords. It never goes into a settings file, and the Keychain
+/// A token in the Mac's Keychain, the place macOS keeps passwords. It never goes into a settings file, and the Keychain
 /// (not Island) is what guards it. Another app cannot read it without the person's permission.
-final class KeychainTodoistTokenStore: TodoistTokenStoring {
+final class KeychainTokenStore: TokenStoring {
     private let service: String
     private let account: String
 
-    init(service: String = (Bundle.main.bundleIdentifier ?? "Island") + ".todoist", account: String = "api-token") {
+    /// `suffix` names the service ("todoist", "github"): each gets its own Keychain item, under the app's own name.
+    convenience init(forService suffix: String) {
+        self.init(service: (Bundle.main.bundleIdentifier ?? "Island") + "." + suffix)
+    }
+
+    init(service: String, account: String = "api-token") {
         self.service = service
         self.account = account
     }
@@ -37,7 +42,7 @@ final class KeychainTodoistTokenStore: TodoistTokenStoring {
         delete()   // replaces any earlier token
         var item = identity
         item[kSecValueData as String] = Data(token.utf8)
-        item[kSecAttrLabel as String] = "Island: Todoist token"
+        item[kSecAttrLabel as String] = "Island: access token (\(service))"
         return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 

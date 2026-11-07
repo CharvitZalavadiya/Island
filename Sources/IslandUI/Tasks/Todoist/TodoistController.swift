@@ -46,7 +46,7 @@ final class TodoistController {
     private(set) var busy: Set<String> = []
 
     @ObservationIgnored private let api: TodoistAPI
-    @ObservationIgnored private let tokens: TodoistTokenStoring
+    @ObservationIgnored private let tokens: TokenStoring
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let refreshInterval: TimeInterval
     @ObservationIgnored private let lingerSeconds: TimeInterval
@@ -68,7 +68,7 @@ final class TodoistController {
     static let completedLimit = 50
 
     init(
-        api: TodoistAPI = URLSessionTodoistAPI(), tokens: TodoistTokenStoring = KeychainTodoistTokenStore(),
+        api: TodoistAPI = URLSessionTodoistAPI(), tokens: TokenStoring = KeychainTokenStore(forService: "todoist"),
         now: @escaping () -> Date = Date.init, refreshInterval: TimeInterval = 60, lingerSeconds: TimeInterval = 0.8
     ) {
         self.api = api

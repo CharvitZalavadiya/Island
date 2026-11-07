@@ -81,7 +81,7 @@ struct SettingsView: View {
                 ForEach(order, id: \.self) { id in
                     if let tab = IslandTab(rawValue: id) {
                         HStack {
-                            Label(tab.title, systemImage: tab.symbol)
+                            Label { Text(tab.title) } icon: { TabIcon(tab: tab) }
                             Spacer()
                             Button { moveTab(id, by: -1, in: order) } label: { Image(systemName: "chevron.up") }
                                 .disabled(id == order.first)

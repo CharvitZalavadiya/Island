@@ -95,6 +95,21 @@ public struct GitHubBranch: Equatable, Hashable, Sendable {
     }
 }
 
+/// How a pull request's automated checks (tests, builds) are doing.
+public enum GitHubCheckState: Equatable, Sendable {
+    case passing
+    case failing
+    case pending
+}
+
+/// Where a pull request stands with its reviewers.
+public enum GitHubReviewState: Equatable, Sendable {
+    case approved
+    case changesRequested
+    /// A review is needed and nobody has given one yet.
+    case required
+}
+
 public struct GitHubPullRequest: Equatable, Identifiable, Sendable {
     public enum State: Equatable, Sendable {
         case open
@@ -112,12 +127,18 @@ public struct GitHubPullRequest: Equatable, Identifiable, Sendable {
     public var headBranch: String?
     public var baseBranch: String?
     public var updatedAt: Date?
+    /// The state of its checks, when it has any (only the lists that ask for it fill this in).
+    public var checks: GitHubCheckState?
+    public var review: GitHubReviewState?
+    /// True when it cannot be merged as it is because it clashes with its base branch.
+    public var hasConflicts: Bool
 
     public var id: String { "\(repoFullName)#\(number)" }
 
     public init(
         number: Int, title: String, url: URL, isDraft: Bool = false, state: State = .open, repoFullName: String,
-        authorLogin: String? = nil, headBranch: String? = nil, baseBranch: String? = nil, updatedAt: Date? = nil
+        authorLogin: String? = nil, headBranch: String? = nil, baseBranch: String? = nil, updatedAt: Date? = nil,
+        checks: GitHubCheckState? = nil, review: GitHubReviewState? = nil, hasConflicts: Bool = false
     ) {
         self.number = number
         self.title = title
@@ -129,11 +150,45 @@ public struct GitHubPullRequest: Equatable, Identifiable, Sendable {
         self.headBranch = headBranch
         self.baseBranch = baseBranch
         self.updatedAt = updatedAt
+        self.checks = checks
+        self.review = review
+        self.hasConflicts = hasConflicts
     }
 
     /// `[owner/repo#12 Title](link)`, ready to paste into a chat or a document.
     public var markdownLink: String {
         "[\(repoFullName)#\(number) \(title)](\(url.absoluteString))"
+    }
+
+    /// The title and the link on two lines: what to paste into a chat to send someone the pull request.
+    public var titleAndLink: String {
+        "\(title)\n\(url.absoluteString)"
+    }
+}
+
+/// The person's open pull requests and the ones waiting on their review.
+public struct GitHubPullRequestLists: Equatable, Sendable {
+    public var mine: [GitHubPullRequest]
+    public var review: [GitHubPullRequest]
+
+    public init(mine: [GitHubPullRequest], review: [GitHubPullRequest]) {
+        self.mine = mine
+        self.review = review
+    }
+}
+
+/// A branch the person pushed to recently: a likely candidate for a pull request.
+public struct GitHubPush: Equatable, Identifiable, Sendable {
+    public var repoFullName: String
+    public var branch: String
+    public var pushedAt: Date
+
+    public var id: String { "\(repoFullName)@\(branch)" }
+
+    public init(repoFullName: String, branch: String, pushedAt: Date) {
+        self.repoFullName = repoFullName
+        self.branch = branch
+        self.pushedAt = pushedAt
     }
 }
 
@@ -147,9 +202,14 @@ public struct GitHubComparison: Equatable, Sendable {
     public var filesChanged: Int
     /// The message of the first commit on the branch (its first line is a good title for the pull request).
     public var firstCommitMessage: String?
+    /// The first line of each commit's message, oldest first (up to `maxCommitTitles` of them).
+    public var commitTitles: [String]
+
+    public static let maxCommitTitles = 20
 
     public init(
-        status: String, aheadBy: Int, behindBy: Int = 0, totalCommits: Int, filesChanged: Int = 0, firstCommitMessage: String? = nil
+        status: String, aheadBy: Int, behindBy: Int = 0, totalCommits: Int, filesChanged: Int = 0, firstCommitMessage: String? = nil,
+        commitTitles: [String] = []
     ) {
         self.status = status
         self.aheadBy = aheadBy
@@ -157,6 +217,7 @@ public struct GitHubComparison: Equatable, Sendable {
         self.totalCommits = totalCommits
         self.filesChanged = filesChanged
         self.firstCommitMessage = firstCommitMessage
+        self.commitTitles = commitTitles
     }
 
     /// A pull request needs something new on the branch.

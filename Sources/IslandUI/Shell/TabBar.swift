@@ -11,7 +11,7 @@ struct TabBar: View {
                 Button {
                     model.selectedTab = tab
                 } label: {
-                    Image(systemName: tab.symbol)
+                    TabIcon(tab: tab)
                         .foregroundStyle(model.selectedTab == tab ? tab.color : Color.white.opacity(0.75))
                         .frame(width: 34, height: 26)
                         .background(model.selectedTab == tab ? tab.color.opacity(0.2) : Color.clear, in: Capsule())
@@ -45,5 +45,19 @@ struct TabBar: View {
             .help("Island")
         }
         .foregroundStyle(.white)
+    }
+}
+
+
+/// A tab's icon: its SF Symbol, or for GitHub the GitHub mark (there is no GitHub symbol in SF Symbols).
+struct TabIcon: View {
+    let tab: IslandTab
+
+    var body: some View {
+        if tab == .github {
+            GitHubMarkView(size: 15)
+        } else {
+            Image(systemName: tab.symbol)
+        }
     }
 }

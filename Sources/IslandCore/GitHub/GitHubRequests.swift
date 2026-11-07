@@ -68,6 +68,48 @@ public enum GitHubRequests {
         get("/search/issues", token: token, query: [("q", query), ("sort", "updated"), ("order", "desc"), ("per_page", String(limit))])
     }
 
+    /// The events the account itself caused (its pushes, mostly), newest first, private ones included.
+    public static func userEvents(token: String, login: String) -> URLRequest {
+        get("/users/\(login)/events", token: token, query: [("per_page", "100")])
+    }
+
+    /// One GraphQL call that gets both lists with their review and check status. (The same search qualifiers as the
+    /// `*Query` strings below, newest first.)
+    public static func pullRequestLists(token: String) -> URLRequest {
+        var request = request("/graphql", token: token, query: [])
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let payload: [String: Any] = [
+            "query": pullRequestListsQuery,
+            "variables": ["mine": myOpenPullRequestsQuery + " sort:updated-desc", "review": reviewRequestedQuery + " sort:updated-desc"],
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        return request
+    }
+
+    /// Checked against GitHub's published GraphQL schema (every field and enum exists).
+    public static let pullRequestListsQuery = """
+        fragment PullRequestFields on PullRequest {
+          number
+          title
+          url
+          isDraft
+          updatedAt
+          mergeable
+          reviewDecision
+          headRefName
+          baseRefName
+          repository { nameWithOwner }
+          author { login }
+          commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+        }
+
+        query PullRequestLists($mine: String!, $review: String!) {
+          mine: search(query: $mine, type: ISSUE, first: 50) { nodes { ...PullRequestFields } }
+          review: search(query: $review, type: ISSUE, first: 50) { nodes { ...PullRequestFields } }
+        }
+        """
+
     /// What to search for to find the pull requests the account opened that are still open.
     public static let myOpenPullRequestsQuery = "is:pr is:open author:@me archived:false"
     /// And the ones other people are waiting on the account to review.

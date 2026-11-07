@@ -8,6 +8,8 @@ struct PullRequestListView: View {
     let controller: GitHubController
     let pullRequests: [GitHubPullRequest]
     let emptyText: String
+    /// Show who opened each one (useful for the ones waiting on your review; for your own it would only say you).
+    var showsAuthor = false
 
     var body: some View {
         if pullRequests.isEmpty {
@@ -27,7 +29,7 @@ struct PullRequestListView: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 6) {
-                    ForEach(pullRequests) { PullRequestRow(controller: controller, pullRequest: $0) }
+                    ForEach(pullRequests) { PullRequestRow(controller: controller, pullRequest: $0, showsAuthor: showsAuthor) }
                 }
             }
             .scrollIndicators(.hidden)
@@ -40,26 +42,31 @@ struct PullRequestListView: View {
 struct PullRequestRow: View {
     let controller: GitHubController
     let pullRequest: GitHubPullRequest
+    var showsAuthor = false
     @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 10) {
+            // The icon's colour is the state of its checks: green, red while failing, yellow while running; grey for a draft.
             Image(systemName: "arrow.triangle.pull")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(pullRequest.isDraft ? Color.white.opacity(0.45) : IslandTheme.tasks)
+                .foregroundStyle(iconColor)
                 .frame(width: 20)
+                .help(checksHelp)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(pullRequest.title).font(.system(size: 13, weight: .medium)).lineLimit(2)
                 HStack(spacing: 6) {
-                    Text("\(pullRequest.repoFullName) #\(pullRequest.number)")
-                    if let updated = pullRequest.updatedAt { Text("· \(Self.relative(updated))") }
-                    if pullRequest.isDraft {
-                        Text("Draft")
-                            .font(.system(size: 9, weight: .bold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(Color.white.opacity(0.14), in: Capsule())
+                    Text("\(pullRequest.repoFullName) #\(pullRequest.number)").lineLimit(1).truncationMode(.middle)
+                    if showsAuthor, let author = pullRequest.authorLogin { Text("· \(author)").lineLimit(1) }
+                    if let updated = pullRequest.updatedAt { Text("· \(Self.relative(updated))").lineLimit(1).fixedSize() }
+                    if pullRequest.isDraft { badge("Draft", color: .white.opacity(0.7), fill: Color.white.opacity(0.14)) }
+                    if pullRequest.hasConflicts { badge("Conflicts", color: IslandTheme.danger, fill: IslandTheme.danger.opacity(0.18)) }
+                    switch pullRequest.review {
+                    case .approved: badge("Approved", color: IslandTheme.tasks, fill: IslandTheme.tasks.opacity(0.18))
+                    case .changesRequested: badge("Changes requested", color: IslandTheme.focus, fill: IslandTheme.focus.opacity(0.18))
+                    case .required: badge("Review needed", color: .white.opacity(0.6), fill: Color.white.opacity(0.1))
+                    case nil: EmptyView()
                     }
                 }
                 .font(.system(size: 10.5))
@@ -101,9 +108,39 @@ struct PullRequestRow: View {
         .onHover { hovering = $0 }
         .contextMenu {
             Button("Copy link") { controller.copyLink(of: pullRequest) }
+            Button("Copy title and link") { controller.copyTitleAndLink(of: pullRequest) }
             Button("Copy as Markdown") { controller.copyMarkdown(of: pullRequest) }
             Button("Open on GitHub") { NSWorkspace.shared.open(pullRequest.url) }
         }
+    }
+
+    private var iconColor: Color {
+        if pullRequest.isDraft { return Color.white.opacity(0.45) }
+        switch pullRequest.checks {
+        case .failing: return IslandTheme.danger
+        case .pending: return IslandTheme.keepAwake
+        default: return IslandTheme.tasks
+        }
+    }
+
+    private var checksHelp: String {
+        switch pullRequest.checks {
+        case .passing: "Checks are passing"
+        case .failing: "Checks are failing"
+        case .pending: "Checks are running"
+        case nil: pullRequest.isDraft ? "Draft" : "No checks"
+        }
+    }
+
+    private func badge(_ text: String, color: Color, fill: Color) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(fill, in: Capsule())
     }
 
     /// "2 hr. ago", "3 days ago".

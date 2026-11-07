@@ -148,10 +148,116 @@ public enum GitHubDecoding {
         guard let wire = try? JSONDecoder().decode(WireComparison.self, from: data), let status = wire.status else {
             throw GitHubError.unreadable
         }
+        let titles = (wire.commits ?? []).prefix(GitHubComparison.maxCommitTitles)
+            .compactMap { $0.commit?.message.map(GitHubText.firstLine(of:)) }.filter { !$0.isEmpty }
         return GitHubComparison(
             status: status, aheadBy: wire.aheadBy ?? 0, behindBy: wire.behindBy ?? 0,
             totalCommits: wire.totalCommits ?? wire.commits?.count ?? 0, filesChanged: wire.files?.count ?? 0,
-            firstCommitMessage: wire.commits?.first?.commit?.message)
+            firstCommitMessage: wire.commits?.first?.commit?.message, commitTitles: titles)
+    }
+
+    // MARK: Lists with their status (GraphQL)
+
+    private struct GQLRepository: Decodable { var nameWithOwner: String? }
+    private struct GQLAuthor: Decodable { var login: String? }
+    private struct GQLRollup: Decodable { var state: String? }
+    private struct GQLCommit: Decodable { var statusCheckRollup: GQLRollup? }
+    private struct GQLCommitNode: Decodable { var commit: GQLCommit? }
+    private struct GQLCommits: Decodable { var nodes: [GQLCommitNode?]? }
+    private struct GQLPull: Decodable {
+        var number: Int?
+        var title: String?
+        var url: String?
+        var isDraft: Bool?
+        var updatedAt: String?
+        var mergeable: String?
+        var reviewDecision: String?
+        var headRefName: String?
+        var baseRefName: String?
+        var repository: GQLRepository?
+        var author: GQLAuthor?
+        var commits: GQLCommits?
+    }
+    private struct GQLNodes: Decodable { var nodes: [GQLPull?]? }
+    private struct GQLData: Decodable { var mine: GQLNodes?; var review: GQLNodes? }
+    private struct GQLError: Decodable { var type: String?; var message: String? }
+    private struct GQLResponse: Decodable { var data: GQLData?; var errors: [GQLError]? }
+
+    /// The two lists from the GraphQL answer. Entries the account cannot see (they come back as null) are skipped, and a
+    /// partial answer (some of an organisation's pull requests hidden behind single sign-on) still gives the rest.
+    public static func pullRequestLists(fromGraphQL data: Data) throws -> GitHubPullRequestLists {
+        guard let response = try? JSONDecoder().decode(GQLResponse.self, from: data) else { throw GitHubError.unreadable }
+        guard let body = response.data, body.mine != nil || body.review != nil else {
+            if let first = response.errors?.first {
+                if first.type == "FORBIDDEN" || first.type == "INSUFFICIENT_SCOPES" { throw GitHubError.forbidden(first.message) }
+                if first.type == "RATE_LIMITED" || first.type == "MAX_NODE_LIMIT_EXCEEDED" { throw GitHubError.rateLimited(until: nil) }
+            }
+            throw GitHubError.unreadable
+        }
+        return GitHubPullRequestLists(
+            mine: (body.mine?.nodes ?? []).compactMap { $0.flatMap(graphQLPull) },
+            review: (body.review?.nodes ?? []).compactMap { $0.flatMap(graphQLPull) })
+    }
+
+    private static func graphQLPull(_ wire: GQLPull) -> GitHubPullRequest? {
+        guard let number = wire.number, let title = wire.title, let urlText = wire.url, let url = URL(string: urlText),
+              let repo = wire.repository?.nameWithOwner
+        else { return nil }
+        let rollup = wire.commits?.nodes?.compactMap { $0 }.last?.commit?.statusCheckRollup?.state
+        let checks: GitHubCheckState? = switch rollup {
+        case "SUCCESS": .passing
+        case "FAILURE", "ERROR": .failing
+        case "PENDING", "EXPECTED": .pending
+        default: nil
+        }
+        let review: GitHubReviewState? = switch wire.reviewDecision {
+        case "APPROVED": .approved
+        case "CHANGES_REQUESTED": .changesRequested
+        case "REVIEW_REQUIRED": .required
+        default: nil
+        }
+        return GitHubPullRequest(
+            number: number, title: title, url: url, isDraft: wire.isDraft ?? false, state: .open, repoFullName: repo,
+            authorLogin: wire.author?.login, headBranch: wire.headRefName, baseBranch: wire.baseRefName,
+            updatedAt: wire.updatedAt.flatMap(date), checks: checks, review: review, hasConflicts: wire.mergeable == "CONFLICTING")
+    }
+
+    // MARK: Recent pushes (events)
+
+    private struct WireEventRepo: Decodable { var name: String? }
+    private struct WireEventPayload: Decodable {
+        var ref: String?
+        var refType: String?
+        enum CodingKeys: String, CodingKey { case ref, refType = "ref_type" }
+    }
+    private struct WireEvent: Decodable {
+        var type: String?
+        var repo: WireEventRepo?
+        var payload: WireEventPayload?
+        var createdAt: String?
+        enum CodingKeys: String, CodingKey { case type, repo, payload, createdAt = "created_at" }
+    }
+
+    /// The branches the person pushed to, most recent first, one entry per branch. A branch that was deleted after the
+    /// push is left out (the events come newest first, so a delete seen before a push is a delete that came after it), and
+    /// so are tags.
+    public static func recentPushes(from data: Data) throws -> [GitHubPush] {
+        guard let events = try? JSONDecoder().decode([WireEvent].self, from: data) else { throw GitHubError.unreadable }
+        var deleted = Set<String>()
+        var seen = Set<String>()
+        var pushes: [GitHubPush] = []
+        for event in events {
+            guard let repo = event.repo?.name, let ref = event.payload?.ref else { continue }
+            if event.type == "DeleteEvent", event.payload?.refType == "branch" {
+                deleted.insert("\(repo)@\(ref)")
+            } else if event.type == "PushEvent", ref.hasPrefix("refs/heads/"), let stamp = event.createdAt.flatMap(date) {
+                let branch = String(ref.dropFirst("refs/heads/".count))
+                let key = "\(repo)@\(branch)"
+                guard !deleted.contains(key), seen.insert(key).inserted else { continue }
+                pushes.append(GitHubPush(repoFullName: repo, branch: branch, pushedAt: stamp))
+            }
+        }
+        return pushes
     }
 
     /// What an error answer says: its message plus the details of each thing wrong, in one sentence.

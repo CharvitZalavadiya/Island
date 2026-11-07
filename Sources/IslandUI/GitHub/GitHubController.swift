@@ -84,6 +84,10 @@ final class GitHubController {
     private(set) var listsLoaded = false
     private(set) var listsLoading = false
 
+    /// The branches the person pushed to recently (what `suggestions` is made from).
+    private(set) var recentPushes: [GitHubPush] = []
+    @ObservationIgnored private var pushesLoading = false
+
     /// The pull request whose link was just copied (the button says "Copied" for a moment).
     private(set) var copiedID: String?
 
@@ -140,6 +144,32 @@ final class GitHubController {
             }
     }
 
+    /// How long a push stays worth suggesting.
+    static let suggestionDays = 14.0
+    static let maxSuggestions = 5
+
+    /// Branches the person pushed to lately that are likely ready for a pull request: not a repository's main branch, not
+    /// one that already has an open pull request from the person, not in a repository a pull request cannot start from,
+    /// and recent. Most recent first.
+    var suggestions: [GitHubPush] {
+        let cutoff = now().addingTimeInterval(-Self.suggestionDays * 86_400)
+        let opened = Set(myPullRequests.compactMap { pull in pull.headBranch.map { "\(pull.repoFullName.lowercased())@\($0)" } })
+        let usual: Set<String> = ["main", "master", "develop", "dev", "trunk"]
+        return recentPushes.filter { push in
+            guard push.pushedAt >= cutoff, !opened.contains("\(push.repoFullName.lowercased())@\(push.branch)") else { return false }
+            if let known = repos.first(where: { $0.fullName.lowercased() == push.repoFullName.lowercased() }) {
+                return known.canTakePullRequests && push.branch != known.defaultBranch
+            }
+            return !usual.contains(push.branch)   // a repository not in the list: the usual main branch names are skipped
+        }
+        .prefix(Self.maxSuggestions).map { $0 }
+    }
+
+    /// The suggestions that belong to one repository.
+    func suggestions(for repo: GitHubRepo) -> [GitHubPush] {
+        suggestions.filter { $0.repoFullName.lowercased() == repo.fullName.lowercased() }
+    }
+
     var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     /// Whether Create can be pressed: a repository, two different branches, a title, and nothing under way.
@@ -172,8 +202,15 @@ final class GitHubController {
     /// Loads what the section on screen needs (the repositories for a new pull request, the lists for the others).
     func loadForCurrentSection() async {
         switch section {
-        case .newPullRequest: await loadRepos()
-        case .mine, .reviewRequests: await refreshLists()
+        case .newPullRequest:
+            // The repositories, the person's open pull requests (so a branch that has one is not suggested) and the recent
+            // pushes load side by side.
+            async let repositories: Void = loadRepos()
+            async let pullRequests: Void = loadListsIfNeeded()
+            async let pushes: Void = loadSuggestions()
+            _ = await (repositories, pullRequests, pushes)
+        case .mine, .reviewRequests:
+            await refreshLists()
         }
     }
 
@@ -275,11 +312,7 @@ final class GitHubController {
         do {
             let found = try await api.repo(token: token, reference)
             guard found.canTakePullRequests else {
-                message = Message(
-                    text: found.isArchived
-                        ? "\(found.fullName) is archived, so it can't take pull requests."
-                        : "You don't have write access to \(found.fullName), so a pull request can't start from one of its branches.",
-                    isError: true)
+                message = Message(text: Self.cannotTakePullRequests(found), isError: true)
                 return
             }
             if !repos.contains(where: { $0.id == found.id }) { repos.insert(found, at: 0) }
@@ -287,6 +320,31 @@ final class GitHubController {
         } catch {
             handle(error, doing: "look up \(reference.fullName)", notFound: "GitHub can't find \(reference.fullName), or your token can't see it.")
         }
+    }
+
+    /// Why a pull request cannot start from this repository.
+    private static func cannotTakePullRequests(_ repo: GitHubRepo) -> String {
+        if repo.isArchived { return "\(repo.fullName) is archived, so it can't take pull requests." }
+        if repo.canPush == false {
+            return "You don't have write access to \(repo.fullName), so a pull request can't start from one of its branches."
+        }
+        return "\(repo.fullName) isn't taking pull requests."
+    }
+
+    /// A branch from the suggestions: its repository and the branch are chosen in one go.
+    func selectSuggestion(_ push: GitHubPush) async {
+        if let known = repos.first(where: { $0.fullName.lowercased() == push.repoFullName.lowercased() }) {
+            guard known.canTakePullRequests else {
+                message = Message(text: Self.cannotTakePullRequests(known), isError: true)
+                return
+            }
+            await selectRepo(known)
+        } else {
+            await selectRepo(typed: push.repoFullName)
+        }
+        // If the repository could not be chosen (it is read-only, say) the message says why and no branch is picked.
+        guard repo?.fullName.lowercased() == push.repoFullName.lowercased() else { return }
+        await selectHead(push.branch)
     }
 
     func selectBase(_ name: String) async {
@@ -380,6 +438,10 @@ final class GitHubController {
         copy(pullRequest.markdownLink, id: pullRequest.id + "#markdown")
     }
 
+    func copyTitleAndLink(of pullRequest: GitHubPullRequest) {
+        copy(pullRequest.titleAndLink, id: pullRequest.id + "#title")
+    }
+
     private func copy(_ text: String, id: String) {
         writeToClipboard(text)
         copiedID = id
@@ -398,16 +460,35 @@ final class GitHubController {
         listsLoading = true
         defer { listsLoading = false }
         do {
-            async let mine = api.myPullRequests(token: token)
-            async let review = api.reviewRequests(token: token)
-            let (mineList, reviewList) = try await (mine, review)
-            myPullRequests = mineList
-            reviewRequests = reviewList
+            let lists = try await api.pullRequestLists(token: token)
+            myPullRequests = lists.mine
+            reviewRequests = lists.review
             listsLoaded = true
             if message?.isError == true { message = nil }
         } catch is CancellationError {
         } catch {
             handle(error, doing: nil)
+        }
+    }
+
+    /// Loads the lists only if they have not been loaded yet (the New PR view wants them just to know which branches
+    /// already have a pull request).
+    private func loadListsIfNeeded() async {
+        if !listsLoaded { await refreshLists() }
+    }
+
+    /// The recent pushes. A nicety: if they cannot be loaded there are simply no suggestions, with no message about it.
+    func loadSuggestions() async {
+        guard connection == .connected, let token, let login = account?.login, !pushesLoading, now() >= pausedUntil else { return }
+        pushesLoading = true
+        defer { pushesLoading = false }
+        do {
+            recentPushes = try await api.recentPushes(token: token, login: login)
+        } catch is CancellationError {
+        } catch GitHubError.unauthorized {
+            handle(GitHubError.unauthorized, doing: nil)
+        } catch {
+            // Not worth bothering the person with.
         }
     }
 
@@ -467,6 +548,7 @@ final class GitHubController {
         reviewRequests = []
         listsLoaded = false
         listsLoading = false
+        recentPushes = []
         copiedID = nil
         pausedUntil = .distantPast
         choiceGeneration += 1

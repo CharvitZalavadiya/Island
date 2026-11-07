@@ -43,7 +43,7 @@ private func data(_ text: String) -> Data { Data(text.utf8) }
 
 @Test func aComparisonSaysWhatThePullRequestWouldCarry() throws {
     let comparison = try GitHubDecoding.comparison(from: data(realCompare))
-    #expect(comparison == GitHubComparison(status: "ahead", aheadBy: 1, behindBy: 0, totalCommits: 1, filesChanged: 1, firstCommitMessage: "sentence case"))
+    #expect(comparison == GitHubComparison(status: "ahead", aheadBy: 1, behindBy: 0, totalCommits: 1, filesChanged: 1, firstCommitMessage: "sentence case", commitTitles: ["sentence case"]))
     #expect(comparison.hasChanges)
     let same = try GitHubDecoding.comparison(from: data(#"{"status": "identical", "ahead_by": 0, "behind_by": 0, "total_commits": 0, "commits": [], "files": []}"#))
     #expect(!same.hasChanges && same.firstCommitMessage == nil)
@@ -188,4 +188,143 @@ private func data(_ text: String) -> Data { Data(text.utf8) }
     #expect(GitHubText.title(fromBranch: "feature/") == "Feature")
     #expect(GitHubText.firstLine(of: "Fix the thing\n\nLonger explanation") == "Fix the thing")
     #expect(GitHubText.firstLine(of: "") == "")
+}
+
+// MARK: Status on the lists (GraphQL)
+
+// Hand-written to the shape of GitHub's published schema (the query is validated against it; these are its answers).
+private let graphQLAnswer = """
+{"data": {
+  "mine": {"nodes": [
+    {"number": 482, "title": "Add login page", "url": "https://github.com/shipmnts/app/pull/482", "isDraft": false,
+     "updatedAt": "2026-11-07T10:00:00Z", "mergeable": "MERGEABLE", "reviewDecision": "APPROVED",
+     "headRefName": "feature/login", "baseRefName": "main", "repository": {"nameWithOwner": "shipmnts/app"},
+     "author": {"login": "jane"}, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}},
+    null,
+    {"number": 91, "title": "Fix rounding", "url": "https://github.com/shipmnts/api/pull/91", "isDraft": true,
+     "updatedAt": "2026-11-05T09:00:00Z", "mergeable": "CONFLICTING", "reviewDecision": null,
+     "headRefName": "fix/round", "baseRefName": "master", "repository": {"nameWithOwner": "shipmnts/api"},
+     "author": null, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "FAILURE"}}}]}},
+    {"number": 7, "title": "No checks yet", "url": "https://github.com/o/r/pull/7", "isDraft": false, "updatedAt": null,
+     "mergeable": "UNKNOWN", "reviewDecision": "REVIEW_REQUIRED", "headRefName": "x", "baseRefName": "main",
+     "repository": {"nameWithOwner": "o/r"}, "author": {"login": "jane"}, "commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]}}
+  ]},
+  "review": {"nodes": [
+    {"number": 77, "title": "Bump deps", "url": "https://github.com/shipmnts/app/pull/77", "isDraft": false,
+     "updatedAt": "2026-11-07T08:00:00Z", "mergeable": "MERGEABLE", "reviewDecision": "CHANGES_REQUESTED",
+     "headRefName": "deps", "baseRefName": "main", "repository": {"nameWithOwner": "shipmnts/app"}, "author": {"login": "bot"},
+     "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "PENDING"}}}]}}
+  ]}
+}}
+"""
+
+@Test func theListsCarryReviewChecksAndConflictStatus() throws {
+    let lists = try GitHubDecoding.pullRequestLists(fromGraphQL: data(graphQLAnswer))
+    #expect(lists.mine.map(\.number) == [482, 91, 7])                     // the null entry (one the account cannot see) is skipped
+    #expect(lists.review.map(\.number) == [77])
+
+    let approved = lists.mine[0]
+    #expect(approved.checks == .passing && approved.review == .approved && !approved.hasConflicts && !approved.isDraft)
+    #expect(approved.headBranch == "feature/login" && approved.baseBranch == "main" && approved.repoFullName == "shipmnts/app")
+    #expect(approved.updatedAt == ISO8601DateFormatter().date(from: "2026-11-07T10:00:00Z") && approved.authorLogin == "jane")
+
+    let broken = lists.mine[1]
+    #expect(broken.checks == .failing && broken.review == nil && broken.hasConflicts && broken.isDraft && broken.authorLogin == nil)
+
+    let waiting = lists.mine[2]
+    #expect(waiting.checks == nil && waiting.review == .required && !waiting.hasConflicts && waiting.updatedAt == nil)
+
+    let toReview = lists.review[0]
+    #expect(toReview.checks == .pending && toReview.review == .changesRequested)
+}
+
+@Test func everyCheckStateIsMapped() throws {
+    func checks(_ state: String) throws -> GitHubCheckState? {
+        let json = #"{"data": {"mine": {"nodes": [{"number": 1, "title": "t", "url": "https://github.com/o/r/pull/1", "repository": {"nameWithOwner": "o/r"}, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "\#(state)"}}}]}}]}}}"#
+        return try GitHubDecoding.pullRequestLists(fromGraphQL: data(json)).mine[0].checks
+    }
+    #expect(try checks("SUCCESS") == .passing)
+    #expect(try checks("FAILURE") == .failing && checks("ERROR") == .failing)
+    #expect(try checks("PENDING") == .pending && checks("EXPECTED") == .pending)
+    #expect(try checks("SOMETHING_NEW") == nil)                             // a state GitHub adds later is just "no status"
+}
+
+@Test func aGraphQLAnswerWithoutDataIsExplained() {
+    #expect(throws: GitHubError.forbidden("Resource protected by organization SAML enforcement.")) {
+        try GitHubDecoding.pullRequestLists(fromGraphQL: data(#"{"data": null, "errors": [{"type": "FORBIDDEN", "message": "Resource protected by organization SAML enforcement."}]}"#))
+    }
+    #expect(throws: GitHubError.rateLimited(until: nil)) {
+        try GitHubDecoding.pullRequestLists(fromGraphQL: data(#"{"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]}"#))
+    }
+    #expect(throws: GitHubError.unreadable) { try GitHubDecoding.pullRequestLists(fromGraphQL: data("<html>Bad gateway</html>")) }
+    #expect(throws: GitHubError.unreadable) { try GitHubDecoding.pullRequestLists(fromGraphQL: data(#"{"errors": [{"type": "WEIRD"}]}"#)) }
+    // Part of the answer missing because of an error elsewhere in it still gives what did come back.
+    let partial = #"{"data": {"mine": {"nodes": [{"number": 1, "title": "t", "url": "https://github.com/o/r/pull/1", "repository": {"nameWithOwner": "o/r"}}]}, "review": null}, "errors": [{"type": "FORBIDDEN", "message": "x"}]}"#
+    #expect((try? GitHubDecoding.pullRequestLists(fromGraphQL: data(partial)))?.mine.count == 1)
+}
+
+@Test func theGraphQLRequestIsExact() throws {
+    let request = GitHubRequests.pullRequestLists(token: "ghp_secret")
+    #expect(request.httpMethod == "POST" && request.url?.absoluteString == "https://api.github.com/graphql")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer ghp_secret")
+    #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+    let sent = try #require(try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])
+    #expect((sent["query"] as? String)?.contains("statusCheckRollup") == true && (sent["query"] as? String)?.contains("reviewDecision") == true)
+    let variables = try #require(sent["variables"] as? [String: String])
+    #expect(variables["mine"] == "is:pr is:open author:@me archived:false sort:updated-desc")
+    #expect(variables["review"] == "is:pr is:open review-requested:@me archived:false sort:updated-desc")
+    #expect(String(data: request.httpBody ?? Data(), encoding: .utf8)?.contains("ghp_secret") == false)
+}
+
+// MARK: Recent pushes
+
+// Trimmed copies of real events from api.github.com (a public account), plus the delete event shape GitHub really sends.
+private let realEvents = """
+[
+ {"type": "PushEvent", "repo": {"name": "sindresorhus/type-fest"}, "payload": {"ref": "refs/heads/main", "head": "2e1d2cd0", "before": "aaaa"}, "created_at": "2026-11-06T07:57:00Z"},
+ {"type": "PushEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "refs/heads/feature/login", "head": "1"}, "created_at": "2026-11-06T07:00:00Z"},
+ {"type": "DeleteEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "old-branch", "ref_type": "branch", "full_ref": "refs/heads/old-branch", "pusher_type": "user"}, "created_at": "2026-11-05T12:00:00Z"},
+ {"type": "PushEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "refs/heads/old-branch", "head": "2"}, "created_at": "2026-11-05T09:00:00Z"},
+ {"type": "PushEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "refs/heads/feature/login", "head": "3"}, "created_at": "2026-11-04T09:00:00Z"},
+ {"type": "PushEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "refs/tags/v1.0", "head": "4"}, "created_at": "2026-11-03T09:00:00Z"},
+ {"type": "IssuesEvent", "repo": {"name": "acme/app"}, "payload": {"action": "opened"}, "created_at": "2026-11-03T08:00:00Z"},
+ {"type": "PushEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "refs/heads/revived"}, "created_at": "2026-11-02T09:00:00Z"},
+ {"type": "DeleteEvent", "repo": {"name": "acme/app"}, "payload": {"ref": "revived", "ref_type": "branch"}, "created_at": "2026-11-01T09:00:00Z"}
+]
+"""
+
+@Test func recentPushesAreTheBranchesPushedMostRecentlyOnePerBranch() throws {
+    let pushes = try GitHubDecoding.recentPushes(from: data(realEvents))
+    // old-branch was deleted after its push, so it is gone; the older push to feature/login is a duplicate; the tag and the
+    // issue event are not branches; "revived" was deleted BEFORE it was pushed again, so it counts.
+    #expect(pushes.map(\.id) == ["sindresorhus/type-fest@main", "acme/app@feature/login", "acme/app@revived"])
+    #expect(pushes[1].pushedAt == ISO8601DateFormatter().date(from: "2026-11-06T07:00:00Z"))
+    #expect(pushes[1].repoFullName == "acme/app" && pushes[1].branch == "feature/login")     // a slash in the branch survives
+    #expect(throws: GitHubError.unreadable) { try GitHubDecoding.recentPushes(from: data(#"{"message": "Not Found"}"#)) }
+    #expect(try GitHubDecoding.recentPushes(from: data("[]")).isEmpty)
+}
+
+@Test func theEventsRequestIsExact() {
+    let request = GitHubRequests.userEvents(token: "t", login: "jane-dev")
+    #expect(request.url?.absoluteString == "https://api.github.com/users/jane-dev/events?per_page=100")
+}
+
+// MARK: The comparison's commits
+
+@Test func aComparisonListsItsCommitsFirstLines() throws {
+    let comparison = try GitHubDecoding.comparison(from: data("""
+    {"status": "ahead", "ahead_by": 3, "behind_by": 12, "total_commits": 3, "files": [{}, {}],
+     "commits": [{"commit": {"message": "Add the form\\n\\nWith a longer explanation"}}, {"commit": {"message": "Fix typo"}}, {"commit": {"message": ""}}]}
+    """))
+    #expect(comparison.commitTitles == ["Add the form", "Fix typo"])         // first lines only, empty ones skipped
+    #expect(comparison.behindBy == 12 && comparison.filesChanged == 2 && comparison.totalCommits == 3)
+    // A long branch lists only the first few.
+    let many = (1...60).map { #"{"commit": {"message": "Commit \#($0)"}}"# }.joined(separator: ",")
+    let long = try GitHubDecoding.comparison(from: data(#"{"status": "ahead", "ahead_by": 60, "total_commits": 60, "commits": [\#(many)]}"#))
+    #expect(long.commitTitles.count == GitHubComparison.maxCommitTitles && long.totalCommits == 60)
+}
+
+@Test func titleAndLinkAreReadyToPasteIntoAChat() {
+    let pull = GitHubPullRequest(number: 5, title: "Add login", url: URL(string: "https://github.com/o/r/pull/5")!, repoFullName: "o/r")
+    #expect(pull.titleAndLink == "Add login\nhttps://github.com/o/r/pull/5")
 }

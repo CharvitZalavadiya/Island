@@ -9,6 +9,7 @@ struct NewPullRequestView: View {
 
     @State private var picking: PullRequestPicking?
     @State private var descriptionOpen = false
+    @State private var showsCommits = false
 
     var body: some View {
         if case .created(let created) = controller.creation {
@@ -33,7 +34,8 @@ struct NewPullRequestView: View {
                     ) { picking = .repository }
 
                     if controller.repo == nil {
-                        Text(controller.reposLoading ? "Loading your repositories…" : "Pick the repository to open the pull request in. You can also type owner/name or paste a link.")
+                        suggestionList(controller.suggestions, heading: "Recently pushed: open a pull request from one")
+                        Text(controller.reposLoading ? "Loading your repositories…" : "Or pick the repository to open the pull request in. You can also type owner/name or paste a link.")
                             .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.5))
                             .padding(.top, 4)
@@ -42,7 +44,11 @@ struct NewPullRequestView: View {
                             pickerButton(symbol: nil, prefix: "into", text: controller.base ?? "…", isPlaceholder: controller.base == nil, loading: false) { picking = .base }
                             pickerButton(symbol: nil, prefix: "from", text: controller.head ?? "Choose a branch", isPlaceholder: controller.head == nil, loading: controller.branchesLoading) { picking = .head }
                         }
+                        if controller.head == nil, let repo = controller.repo {
+                            suggestionList(controller.suggestions(for: repo), heading: "Your recent branches here")
+                        }
                         comparisonLine
+                        if showsCommits, case .ready(let comparison) = controller.comparison { commitList(comparison) }
                         titleField
                         descriptionArea
                         if let existing = controller.existingPullRequest { ExistingPullRequestRow(controller: controller, pullRequest: existing) }
@@ -56,6 +62,7 @@ struct NewPullRequestView: View {
         }
         // A template may have filled the description in while the form was out of sight (behind the repository list).
         .onAppear { if !controller.body.isEmpty { descriptionOpen = true } }
+        .onChange(of: controller.head) { _, _ in showsCommits = false }
         .onChange(of: controller.body) { _, text in
             // A template just filled the description in: show it.
             if !text.isEmpty { descriptionOpen = true }
@@ -88,32 +95,102 @@ struct NewPullRequestView: View {
 
     @ViewBuilder
     private var comparisonLine: some View {
-        HStack(spacing: 6) {
-            switch controller.comparison {
-            case .none:
-                Image(systemName: "arrow.triangle.branch").foregroundStyle(.white.opacity(0.4))
-                Text("Choose the branch to merge from.").foregroundStyle(.white.opacity(0.5))
-            case .loading:
-                ProgressView().controlSize(.mini)
-                Text("Comparing the branches…").foregroundStyle(.white.opacity(0.5))
-            case .ready(let comparison):
-                if comparison.hasChanges {
+        if case .ready(let comparison) = controller.comparison, comparison.hasChanges {
+            // Tap to see what the commits are.
+            Button { showsCommits.toggle() } label: {
+                HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(IslandTheme.tasks)
                     Text(Self.summary(of: comparison)).foregroundStyle(.white.opacity(0.75))
-                } else {
+                    if comparison.behindBy > 0 {
+                        Text("· \(comparison.behindBy) behind \(controller.base ?? "the base")").foregroundStyle(IslandTheme.keepAwake)
+                    }
+                    if !comparison.commitTitles.isEmpty {
+                        Image(systemName: showsCommits ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 8, weight: .bold)).foregroundStyle(.white.opacity(0.4))
+                    }
+                    Spacer(minLength: 0)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+                .padding(.horizontal, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(comparison.behindBy > 0 ? "The base branch has moved on; consider updating the branch first" : "Show the commits")
+        } else {
+            HStack(spacing: 6) {
+                switch controller.comparison {
+                case .none:
+                    Image(systemName: "arrow.triangle.branch").foregroundStyle(.white.opacity(0.4))
+                    Text("Choose the branch to merge from.").foregroundStyle(.white.opacity(0.5))
+                case .loading:
+                    ProgressView().controlSize(.mini)
+                    Text("Comparing the branches…").foregroundStyle(.white.opacity(0.5))
+                case .ready:
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(IslandTheme.keepAwake)
                     Text("No new commits on \(controller.head ?? "this branch"): nothing to open a pull request for.")
                         .foregroundStyle(IslandTheme.keepAwake)
+                case .failed(let reason):
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(IslandTheme.danger)
+                    Text(reason).foregroundStyle(IslandTheme.danger)
                 }
-            case .failed(let reason):
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(IslandTheme.danger)
-                Text(reason).foregroundStyle(IslandTheme.danger)
+            }
+            .font(.system(size: 11, weight: .medium))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
+        }
+    }
+
+    /// The first few commit titles, so the person can see what is going into the pull request.
+    private func commitList(_ comparison: GitHubComparison) -> some View {
+        let shown = Array(comparison.commitTitles.prefix(5))
+        let hidden = comparison.totalCommits - shown.count
+        return VStack(alignment: .leading, spacing: 3) {
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, title in
+                HStack(spacing: 6) {
+                    Circle().fill(IslandTheme.github.opacity(0.7)).frame(width: 4, height: 4)
+                    Text(title).lineLimit(1).truncationMode(.tail)
+                }
+            }
+            if hidden > 0 { Text("and \(hidden) more").foregroundStyle(.white.opacity(0.4)) }
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.white.opacity(0.65))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Branches the person pushed to recently, one tap from a pull request.
+    @ViewBuilder
+    private func suggestionList(_ pushes: [GitHubPush], heading: String) -> some View {
+        if !pushes.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(heading).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.white.opacity(0.45)).padding(.horizontal, 4)
+                ForEach(pushes) { push in
+                    Button { Task { await controller.selectSuggestion(push) } } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "arrow.triangle.branch").font(.system(size: 11, weight: .semibold)).foregroundStyle(IslandTheme.github).frame(width: 16)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(push.branch).font(.system(size: 12.5, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                                Text("\(push.repoFullName) · \(PullRequestRow.relative(push.pushedAt))")
+                                    .font(.system(size: 10)).foregroundStyle(.white.opacity(0.45)).lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                            Text("Open PR").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(IslandTheme.github)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(IslandTheme.github.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                        .contentShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
-        .font(.system(size: 11, weight: .medium))
-        .lineLimit(1)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
     }
 
     /// "3 commits · 5 files changed".
@@ -388,7 +465,7 @@ struct CreatedPullRequestCard: View {
 
             HStack(spacing: 8) {
                 PillButton(title: "Open in GitHub") { NSWorkspace.shared.open(pullRequest.url) }
-                PullRequestActions.markdownButton(controller: controller, pullRequest: pullRequest)
+                PullRequestActions.copyAsMenu(controller: controller, pullRequest: pullRequest)
                 Spacer(minLength: 0)
                 PillButton(title: "New pull request", prominent: true, tint: IslandTheme.github) { controller.startAnother() }
             }
@@ -430,9 +507,26 @@ enum PullRequestActions {
         }
     }
 
+    /// "Copy as…": the title with the link (for a chat), or the link as Markdown (for a document).
     @MainActor
-    static func markdownButton(controller: GitHubController, pullRequest: GitHubPullRequest) -> some View {
-        let copied = controller.copiedID == pullRequest.id + "#markdown"
-        return PillButton(title: copied ? "Copied" : "Copy as Markdown") { controller.copyMarkdown(of: pullRequest) }
+    static func copyAsMenu(controller: GitHubController, pullRequest: GitHubPullRequest) -> some View {
+        let copied = controller.copiedID == pullRequest.id + "#markdown" || controller.copiedID == pullRequest.id + "#title"
+        return Menu {
+            Button("Title and link") { controller.copyTitleAndLink(of: pullRequest) }
+            Button("Markdown link") { controller.copyMarkdown(of: pullRequest) }
+        } label: {
+            Text(copied ? "Copied" : "Copy as…")
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Color.white.opacity(0.14), in: Capsule())
+                .foregroundStyle(Color.white)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 }

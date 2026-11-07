@@ -41,7 +41,7 @@ struct GitHubTab: View {
             case .reviewRequests:
                 PullRequestListView(
                     controller: controller, pullRequests: controller.reviewRequests,
-                    emptyText: "Nobody is waiting on your review.")
+                    emptyText: "Nobody is waiting on your review.", showsAuthor: true)
             }
         }
     }
@@ -74,9 +74,7 @@ struct GitHubConnectCard: View {
         let connecting = controller.connection == .connecting
         VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 8) {
-                Image(systemName: "arrow.triangle.pull")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(IslandTheme.github)
+                GitHubMarkView(size: 20).foregroundStyle(.white)
                 Text("Connect GitHub").font(.system(size: 15, weight: .bold))
             }
             Text("Open pull requests in any repository you can push to, see your open and review-requested ones, and copy their links. Island needs a personal access token with the “repo” permission.")

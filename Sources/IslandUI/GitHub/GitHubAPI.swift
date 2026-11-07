@@ -18,8 +18,10 @@ protocol GitHubAPI: Sendable {
     ) async throws -> GitHubPullRequest
     /// The open pull request from `head` into `base`, if there already is one.
     func openPullRequest(token: String, _ repo: GitHubRepoRef, head: String, base: String) async throws -> GitHubPullRequest?
-    func myPullRequests(token: String) async throws -> [GitHubPullRequest]
-    func reviewRequests(token: String) async throws -> [GitHubPullRequest]
+    /// The account's open pull requests and the ones waiting on its review, with their review and check status.
+    func pullRequestLists(token: String) async throws -> GitHubPullRequestLists
+    /// The branches the account pushed to recently, most recent first.
+    func recentPushes(token: String, login: String) async throws -> [GitHubPush]
 }
 
 /// GitHub over the internet. It uses an ephemeral session, so nothing about a person's repositories is cached on disk.
@@ -97,14 +99,30 @@ final class URLSessionGitHubAPI: GitHubAPI, @unchecked Sendable {
         try GitHubDecoding.pullRequests(from: try await send(GitHubRequests.openPullRequests(token: token, repo, head: head, base: base)).data).first
     }
 
-    func myPullRequests(token: String) async throws -> [GitHubPullRequest] {
-        try GitHubDecoding.searchedPullRequests(
-            from: try await send(GitHubRequests.searchPullRequests(token: token, query: GitHubRequests.myOpenPullRequestsQuery)).data)
+    /// One GraphQL call gets both lists with their review and check status. If GraphQL cannot be used for a reason that is
+    /// not about the person (a schema change, a hiccup on GitHub's side), the plain search gives the same lists without
+    /// the status, so the lists never go blank over something the person cannot fix.
+    func pullRequestLists(token: String) async throws -> GitHubPullRequestLists {
+        do {
+            return try GitHubDecoding.pullRequestLists(fromGraphQL: try await send(GitHubRequests.pullRequestLists(token: token)).data)
+        } catch let error as GitHubError {
+            switch error {
+            case .unauthorized, .sso, .rateLimited, .network: throw error
+            case .forbidden, .notFound, .validation, .server, .unreadable: return try await searchedPullRequestLists(token: token)
+            }
+        }
     }
 
-    func reviewRequests(token: String) async throws -> [GitHubPullRequest] {
-        try GitHubDecoding.searchedPullRequests(
-            from: try await send(GitHubRequests.searchPullRequests(token: token, query: GitHubRequests.reviewRequestedQuery)).data)
+    func recentPushes(token: String, login: String) async throws -> [GitHubPush] {
+        try GitHubDecoding.recentPushes(from: try await send(GitHubRequests.userEvents(token: token, login: login)).data)
+    }
+
+    private func searchedPullRequestLists(token: String) async throws -> GitHubPullRequestLists {
+        async let mine = send(GitHubRequests.searchPullRequests(token: token, query: GitHubRequests.myOpenPullRequestsQuery)).data
+        async let review = send(GitHubRequests.searchPullRequests(token: token, query: GitHubRequests.reviewRequestedQuery)).data
+        return GitHubPullRequestLists(
+            mine: try GitHubDecoding.searchedPullRequests(from: try await mine),
+            review: try GitHubDecoding.searchedPullRequests(from: try await review))
     }
 
     // MARK: Internals

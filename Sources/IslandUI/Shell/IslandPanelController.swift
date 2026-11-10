@@ -415,9 +415,8 @@ public final class IslandPanelController: NSObject {
         let settings = model.settings.settings
         machine.hoverOpens = settings.hoverOpens
         machine.collapseDelay = settings.collapseDelay
-        // Max mode keeps the island open exactly as a pin does (the pin icon itself is the person's own choice).
-        let keepOpen = model.isPinned || model.isMax
-        if keepOpen != machine.isPinned { apply(machine.setPinned(keepOpen)) }
+        // Max mode is only a bigger size: the island still closes by itself when the pointer leaves, unless it is pinned.
+        if model.isPinned != machine.isPinned { apply(machine.setPinned(model.isPinned)) }
         updateFrame()
     }
 

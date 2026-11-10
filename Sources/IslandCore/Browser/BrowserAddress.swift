@@ -51,15 +51,44 @@ public enum BrowserAddress {
         text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
-    /// The address worth remembering for next time: where the page is, without the query or fragment (those can hold
-    /// one-time codes from a sign-in).
-    public static func remembered(_ url: URL) -> String? {
+    /// Query items that carry a secret or a one-time value (sign-in codes, tokens, session ids): never written to disk.
+    private static let sensitiveNames: Set<String> = [
+        "code", "token", "id_token", "access_token", "refresh_token", "state", "session_state", "sid", "session", "sessionid",
+        "key", "apikey", "api_key", "secret", "client_secret", "password", "pass", "pwd", "auth", "authorization", "sig",
+        "signature", "assertion", "otp", "ticket",
+    ]
+
+    /// The address worth keeping for next time (a pinned tab, the last page): the page itself, with the harmless part of
+    /// its query ("?q=swift" stays) but never anything that looks like a secret, no fragment that carries values (a
+    /// sign-in's "#id_token=…") and no password in the address.
+    public static func kept(_ url: URL) -> String? {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https", var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-        components.query = nil
-        components.fragment = nil
         components.user = nil
         components.password = nil
+        if let items = components.queryItems {
+            let safe = items.filter { !sensitiveNames.contains($0.name.lowercased()) }
+            components.queryItems = safe.isEmpty ? nil : safe
+        }
+        if let fragment = components.fragment, fragment.contains("=") || fragment.contains("/") { components.fragment = nil }
         return components.string
+    }
+}
+
+extension BrowserAddress {
+    /// Whether two addresses are the same page for bookmarking: same site (a leading "www." does not count), same path (a
+    /// trailing slash does not count), same query. The scheme and an anchor are ignored.
+    public static func sameDestination(_ a: String, _ b: String) -> Bool {
+        func key(_ text: String) -> String? {
+            guard let url = URL(string: text), var host = url.host?.lowercased() else { return nil }
+            if host.hasPrefix("www.") { host.removeFirst(4) }
+            var path = url.path
+            while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+            if path.isEmpty { path = "/" }
+            let port = url.port.map { ":\($0)" } ?? ""
+            return host + port + path + (url.query.map { "?" + $0 } ?? "")
+        }
+        guard let first = key(a), let second = key(b) else { return a == b }
+        return first == second
     }
 }
 

@@ -39,12 +39,16 @@ private func resolved(_ text: String) -> BrowserAddress.Resolved { BrowserAddres
     #expect(resolved("   \n ") == .empty)
 }
 
-@Test func onlyThePlaceOfAPageIsRememberedNeverWhatCameWithIt() throws {
-    #expect(BrowserAddress.remembered(URL(string: "https://teams.microsoft.com/v2/?code=SECRET&state=x#id_token=T")!) == "https://teams.microsoft.com/v2/")
-    #expect(BrowserAddress.remembered(URL(string: "https://user:pass@example.com/a/b?q=1")!) == "https://example.com/a/b")
-    #expect(BrowserAddress.remembered(URL(string: "http://localhost:3000/x")!) == "http://localhost:3000/x")
-    #expect(BrowserAddress.remembered(URL(string: "mailto:a@b.com")!) == nil)
-    #expect(BrowserAddress.remembered(URL(string: "about:blank")!) == nil)
+@Test func aKeptAddressHasNoSecretsButKeepsTheHarmlessQuery() throws {
+    func kept(_ text: String) -> String? { BrowserAddress.kept(URL(string: text)!) }
+    #expect(kept("https://teams.microsoft.com/v2/?code=SECRET&state=x#id_token=T") == "https://teams.microsoft.com/v2/")
+    #expect(kept("https://user:pass@example.com/a/b?q=1") == "https://example.com/a/b?q=1")            // a password never; a harmless query stays
+    #expect(kept("https://example.com/search?q=swift&token=ABC&page=2&SID=9") == "https://example.com/search?q=swift&page=2")
+    #expect(kept("https://example.com/docs#installation") == "https://example.com/docs#installation")   // an ordinary anchor stays
+    #expect(kept("https://example.com/cb#access_token=ABC&type=bearer") == "https://example.com/cb")    // a fragment carrying values goes
+    #expect(kept("http://localhost:3000/x") == "http://localhost:3000/x")
+    #expect(kept("mailto:a@b.com") == nil)
+    #expect(kept("about:blank") == nil)
 }
 
 @Test func linksFollowTheRulesOfASafeBrowser() {
@@ -91,4 +95,125 @@ private func resolved(_ text: String) -> BrowserAddress.Resolved { BrowserAddres
     // A tiny screen never makes it smaller than the usual island.
     let tiny = NotchGeometry.maxSize(screenFrame: CGRect(x: 0, y: 0, width: 600, height: 400), minimum: usual)
     #expect(tiny == CGSize(width: 620, height: 330))
+}
+
+// MARK: Tabs and bookmarks
+
+private func ids(_ entries: [BrowserTabList.Entry]) -> [UUID] { entries.map(\.id) }
+
+@Test func aFreshListHasOneBlankSelectedTabNoBookmarksAndTheSidebarIsOff() {
+    let list = BrowserTabList.fresh()
+    #expect(list.open.count == 1 && list.bookmarks.isEmpty && list.selected == list.open[0].id && list.open[0].url == nil)
+    #expect(!list.sidebarOpen)
+    #expect(BrowserTabList.fresh(url: "https://a.com").open[0].url == "https://a.com")
+}
+
+@Test func aNewTabGoesNextToTheOneItWasOpenedFromAndIsSelected() {
+    var list = BrowserTabList.fresh()
+    let first = list.open[0].id
+    let third = list.addOpen()
+    let second = list.addOpen(after: first)
+    #expect(ids(list.open) == [first, second, third] && list.selected == second)
+    let popup = list.addOpen(select: false, after: UUID())                    // unknown opener: last
+    #expect(list.open.last?.id == popup && list.selected == second)
+}
+
+@Test func closingATabSelectsItsNeighbourAndUnknownOnesChangeNothing() {
+    var list = BrowserTabList.fresh(url: "a")
+    let a = list.open[0].id
+    let b = list.addOpen(url: "b"), c = list.addOpen(url: "c")
+    list.select(b)
+    let closedB = list.close(b)
+    #expect(closedB)
+    #expect(ids(list.open) == [a, c] && list.selected == c)                     // the one that moved into its place
+    let closedC = list.close(c)
+    #expect(closedC && list.selected == a)                                      // the last one: the one before
+    let unknown = list.close(UUID())
+    #expect(!unknown && list.selected == a)
+}
+
+@Test func closingEveryTabByMistakeLeavesTheBookmarksAndABlankTab() {
+    var list = BrowserTabList.fresh(url: "https://teams.microsoft.com/v2/")
+    list.toggleBookmark(title: "Microsoft Teams", url: "https://teams.microsoft.com/v2/")
+    list.toggleBookmark(title: "WhatsApp", url: "https://web.whatsapp.com/")
+    let teams = list.open[0].id
+    let notes = list.addOpen(url: "https://notes.example.com/")
+    list.select(notes)
+
+    let closedNotes = list.close(notes)
+    let closedTeams = list.close(teams)                                         // everything closed
+    #expect(closedNotes && closedTeams)
+    #expect(list.bookmarks.count == 2)                                          // the bookmarks are not tabs: untouched
+    #expect(list.open.count == 1 && list.open[0].url == nil && list.selected == list.open[0].id)   // a blank tab to look at
+}
+
+@Test func theStarBookmarksAPageOnceAndRemovesItAgain() {
+    var list = BrowserTabList.fresh()
+    let nowBookmarked = list.toggleBookmark(title: "Microsoft Teams", url: "https://teams.microsoft.com/v2/")
+    #expect(nowBookmarked && list.bookmarks.count == 1 && list.bookmarks[0].title == "Microsoft Teams")
+    #expect(list.bookmark(for: "https://teams.microsoft.com/v2")?.id == list.bookmarks[0].id)            // a trailing slash is the same page
+    #expect(list.bookmark(for: "https://www.teams.microsoft.com/v2/#chat") != nil)                        // so are www. and an anchor
+    #expect(list.bookmark(for: "https://teams.microsoft.com/v2/?x=1") == nil)                             // another query is another page
+    let again = list.addBookmark(title: "Teams again", url: "https://teams.microsoft.com/v2")
+    #expect(!again && list.bookmarks.count == 1)                                // never two for one page
+    let afterSecondTap = list.toggleBookmark(title: "ignored", url: "https://teams.microsoft.com/v2/")
+    #expect(!afterSecondTap && list.bookmarks.isEmpty)
+}
+
+@Test func anOpenTabOnABookmarkedPageIsFoundSoItIsNotOpenedTwice() {
+    var list = BrowserTabList.fresh(url: "https://web.whatsapp.com/")
+    let id = list.open[0].id
+    #expect(list.openTab(on: "https://web.whatsapp.com")?.id == id)
+    #expect(list.openTab(on: "https://teams.microsoft.com") == nil)
+    list.update(id, url: "https://github.com/a/b", title: "A repo")
+    #expect(list.openTab(on: "https://web.whatsapp.com") == nil && list.entry(id)?.title == "A repo")
+}
+
+@Test func samePageMeansSameSitePathAndQueryNothingMore() {
+    #expect(BrowserAddress.sameDestination("https://a.com/x/", "http://www.a.com/x#top"))
+    #expect(BrowserAddress.sameDestination("https://A.com", "https://a.com/"))
+    #expect(!BrowserAddress.sameDestination("https://a.com/x", "https://a.com/y"))
+    #expect(!BrowserAddress.sameDestination("https://a.com/x?q=1", "https://a.com/x?q=2"))
+    #expect(!BrowserAddress.sameDestination("https://a.com:8080/x", "https://a.com/x"))
+    #expect(BrowserAddress.sameDestination("not a url", "not a url"))
+}
+
+@Test func aSavedListThatPointsNowhereIsRepaired() {
+    var empty = BrowserTabList()
+    empty.repair()
+    #expect(empty.open.count == 1 && empty.selected == empty.open[0].id)
+
+    let a = UUID()
+    var dangling = BrowserTabList(open: [BrowserTabList.Entry(id: a, url: "https://a.com")], selected: UUID())
+    dangling.repair()
+    #expect(dangling.selected == a)
+}
+
+@Test func theTabListSurvivesBeingSavedAndReadBack() throws {
+    var list = BrowserTabList.fresh(url: "https://a.com")
+    list.toggleBookmark(title: "A", url: "https://a.com/home")
+    list.addOpen(url: "https://b.com")
+    list.sidebarOpen = true
+    let decoded = try JSONDecoder().decode(BrowserTabList.self, from: JSONEncoder().encode(list))
+    #expect(decoded == list && decoded.sidebarOpen && decoded.bookmarks.count == 1)
+}
+
+@Test func pinnedTabsFromThePreviousVersionBecomeBookmarksAndTheOpenOneStaysOpen() throws {
+    let teams = UUID(), whatsapp = UUID(), notes = UUID()
+    let old = """
+    {"selected":"\(teams.uuidString)","sidebarOpen":true,
+     "pinned":[{"id":"\(teams.uuidString)","url":"https://teams.microsoft.com/v2/","title":"Microsoft Teams"},
+               {"id":"\(whatsapp.uuidString)","url":"https://web.whatsapp.com/","title":"WhatsApp Web"},
+               {"id":"\(UUID().uuidString)","title":"never had an address"}],
+     "open":[{"id":"\(notes.uuidString)","url":"https://notes.example.com/","title":"Notes"}]}
+    """
+    var list = try JSONDecoder().decode(BrowserTabList.self, from: Data(old.utf8))
+    list.repair()
+    #expect(list.bookmarks.map(\.title) == ["Microsoft Teams", "WhatsApp Web"])      // the one with no address is dropped
+    #expect(list.sidebarOpen)
+    #expect(ids(list.open) == [notes, teams])                                      // what was showing stays open as an ordinary tab
+    #expect(list.selected == teams)
+    // Written out again it is the new format (no "pinned").
+    let written = String(decoding: try JSONEncoder().encode(list), as: UTF8.self)
+    #expect(!written.contains("pinned") && written.contains("bookmarks"))
 }

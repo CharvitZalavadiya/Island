@@ -60,6 +60,9 @@ private final class LocalSite: @unchecked Sendable {
                 body = "<html><head><title>Page A</title></head><body><a id=l href=\"/b\">to b</a></body></html>"
             case "/b":
                 body = "<html><head><title>Page B</title></head><body>b</body></html>"
+            case "/old":
+                status = "302 Found"
+                headers += "Location: /b\r\n"
             case "/file":
                 headers = "Content-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"x.bin\"\r\n"
                 body = "BINARY"
@@ -81,9 +84,18 @@ private final class Handed: @unchecked Sendable { var urls: [URL] = [] }
 }
 
 /// A browser that keeps its sites only in memory, so tests never touch the real (persistent) logins.
-@MainActor private func makeBrowser(store: FileStore<BrowserState>? = nil, dataStore: WKWebsiteDataStore = .nonPersistent(), handed: Handed = Handed()) -> BrowserController {
+@MainActor private func makeBrowser(
+    store: FileStore<BrowserState>? = nil, dataStore: WKWebsiteDataStore = .nonPersistent(), handed: Handed = Handed(),
+    sleepAfter: TimeInterval = 120, clock: TestClock = TestClock()
+) -> BrowserController {
     _ = NSApplication.shared
-    return BrowserController(store: store ?? tempStore(), dataStore: dataStore, openElsewhere: { handed.urls.append($0) })
+    return BrowserController(store: store ?? tempStore(), dataStore: dataStore, sleepAfter: sleepAfter, now: { clock.now }, openElsewhere: { handed.urls.append($0) })
+}
+
+/// A clock the test moves by hand, so no test waits two real minutes for a page to fall asleep.
+private final class TestClock: @unchecked Sendable {
+    var now = Date(timeIntervalSince1970: 1_800_000_000)
+    func advance(_ seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
 }
 
 @MainActor private func browserEventually(timeout: TimeInterval = 8, _ condition: () -> Bool) async -> Bool {
@@ -95,11 +107,16 @@ private final class Handed: @unchecked Sendable { var urls: [URL] = [] }
     return condition()
 }
 
-@Test @MainActor func browserNothingFromWebKitRunsUntilTheTabIsOpened() {
+@Test @MainActor func browserNothingFromWebKitRunsUntilAPageIsOpened() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
     let browser = makeBrowser()
     #expect(browser.webView == nil && !browser.hasPage)
-    browser.start()                                            // the tab opens with nothing remembered: a view, but still the start hint
-    #expect(browser.webView != nil && !browser.hasPage)
+    browser.start()                                            // the tab opens on a blank tab: the new-tab page, no web view yet
+    #expect(browser.webView == nil && !browser.hasPage && browser.wantsAddressFocus)
+    browser.go("127.0.0.1:\(port)/a")
+    #expect(browser.webView != nil && browser.hasPage)
     #expect(browser.webView?.customUserAgent == BrowserController.userAgent)
 }
 
@@ -137,25 +154,48 @@ private final class Handed: @unchecked Sendable { var urls: [URL] = [] }
     browser.go("http://127.0.0.1:\(port)/a")
     #expect(await browserEventually { browser.title == "Page A" })
 
-    browser.address = "tea"                                    // the person is typing...
+    browser.addressEditingChanged(true)                        // the person is typing...
+    browser.address = "tea"
     browser.webView?.load(URLRequest(url: URL(string: "http://127.0.0.1:\(port)/a")!))   // ...and meanwhile the page reloads by itself
     #expect(await browserEventually { browser.title == "Page A" && !browser.isLoading })
     #expect(browser.address == "tea")                          // what they typed stays
-    browser.resetAddress()                                     // Escape brings the page's address back
+    browser.addressEditingChanged(false)                       // they left the bar without pressing Return: the page's address comes back
     #expect(browser.address == "http://127.0.0.1:\(port)/a")
 }
 
-@Test @MainActor func browserRemembersTheLastPageWithoutAnythingFromItsQuery() async throws {
+@Test @MainActor func browserTheBarShowsThePageYouAreOnNotWhatYouTypedAndFollowsRedirects() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser()
+    browser.start()
+
+    // Typed without a scheme, then Return: the bar shows the real address.
+    browser.addressEditingChanged(true)
+    browser.address = "127.0.0.1:\(port)/a"
+    browser.go(browser.address)
+    #expect(await browserEventually { browser.title == "Page A" && !browser.isLoading })
+    #expect(browser.address == "http://127.0.0.1:\(port)/a")
+
+    // A page that redirects: the bar ends on where the page really is.
+    browser.addressEditingChanged(true)
+    browser.address = "127.0.0.1:\(port)/old"
+    browser.go(browser.address)
+    #expect(await browserEventually { browser.title == "Page B" && !browser.isLoading })
+    #expect(browser.address == "http://127.0.0.1:\(port)/b")
+}
+
+@Test @MainActor func browserRemembersTheLastPageWithoutAnySecretsFromItsAddress() async throws {
     let site = LocalSite()
     let port = try await site.start()
     defer { site.stop() }
     let store = tempStore()
     let first = makeBrowser(store: store)
     first.start()
-    first.go("http://127.0.0.1:\(port)/a?code=SECRET#id_token=T")
+    first.go("http://127.0.0.1:\(port)/a?q=keep&code=SECRET#id_token=T")
     #expect(await browserEventually { first.title == "Page A" && !first.isLoading })
-    #expect(await browserEventually { store.load().lastAddress != nil })
-    #expect(store.load().lastAddress == "http://127.0.0.1:\(port)/a")
+    #expect(await browserEventually { store.load().tabs?.selectedEntry?.url != nil })
+    #expect(store.load().tabs?.selectedEntry?.url == "http://127.0.0.1:\(port)/a?q=keep")
     let onDisk = (try? String(contentsOf: store.url, encoding: .utf8)) ?? ""
     #expect(!onDisk.contains("SECRET") && !onDisk.contains("id_token"))
 
@@ -226,4 +266,289 @@ private final class Handed: @unchecked Sendable { var urls: [URL] = [] }
     #expect(!model.isMax && !model.isPinned)
     #expect(model.contentSize == IslandMetrics.expandedSize)
     #expect(IslandTab.browser.title == "Browser" && model.orderedTabs.contains(.browser))
+}
+
+// MARK: Tabs, bookmarks, the sidebar
+
+@Test @MainActor func browserStartsOnOneBlankTabWithTheSidebarOffAndTheChoiceIsRemembered() {
+    let store = tempStore()
+    let browser = makeBrowser(store: store)
+    #expect(browser.tabs.open.count == 1 && browser.tabs.bookmarks.isEmpty && !browser.tabs.sidebarOpen)
+    browser.toggleSidebar()
+    #expect(browser.tabs.sidebarOpen)
+    #expect(makeBrowser(store: store).tabs.sidebarOpen)         // still on next launch
+}
+
+@Test @MainActor func browserANewTabIsBlankNextToTheCurrentOneAndAsksForTheAddressBar() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser()
+    browser.start()
+    browser.go("http://127.0.0.1:\(port)/a")
+    #expect(await browserEventually { browser.title == "Page A" })
+    let first = try #require(browser.tabs.selected)
+    let request = browser.addressFocusRequest
+
+    browser.newTab()
+    #expect(browser.tabs.open.count == 2 && browser.tabs.selected != first && browser.tabs.open.first?.id == first)
+    #expect(!browser.hasPage && browser.address == "" && browser.addressFocusRequest == request + 1)
+    browser.select(first)                                       // back to the first: its page is still there, still awake
+    #expect(browser.hasPage && browser.title == "Page A" && browser.address == "http://127.0.0.1:\(port)/a")
+    #expect(browser.tabs.open.count == 1)                       // and the blank tab that was never used did not stay behind
+}
+
+@Test @MainActor func browserABookmarkIsOnlyALinkThatSurvivesClosingEverythingAndQuitting() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let store = tempStore()
+    let browser = makeBrowser(store: store)
+    browser.start()
+    browser.go("http://127.0.0.1:\(port)/a?token=NOPE")
+    #expect(await browserEventually { browser.title == "Page A" && !browser.isLoading })
+    #expect(!browser.isCurrentBookmarked)
+    browser.toggleBookmark()                                    // the star
+    #expect(browser.isCurrentBookmarked && browser.tabs.bookmarks.count == 1)
+    let bookmark = try #require(browser.tabs.bookmarks.first)
+    #expect(bookmark.url == "http://127.0.0.1:\(port)/a" && bookmark.title == "Page A")   // the address a secret was taken out of
+
+    browser.newTab()
+    browser.go("http://127.0.0.1:\(port)/b")
+    #expect(await browserEventually { browser.title == "Page B" && !browser.isLoading })
+    #expect(!browser.isCurrentBookmarked)                       // the star follows the page, not the tab
+    for entry in browser.tabs.open { browser.close(entry.id) }  // close every tab, by mistake
+    #expect(browser.tabs.bookmarks.map(\.id) == [bookmark.id])
+    #expect(browser.tabs.open.count == 1 && browser.tabs.open[0].url == nil)
+
+    // Quit and relaunch: the bookmark is there, and NOTHING is open or running until it is clicked.
+    let relaunched = makeBrowser(store: store)
+    relaunched.start()
+    #expect(relaunched.tabs.bookmarks.map(\.id) == [bookmark.id])
+    #expect(relaunched.webView == nil && !relaunched.hasPage)
+    #expect(!((try? String(contentsOf: store.url, encoding: .utf8)) ?? "").contains("NOPE"))
+
+    relaunched.openBookmark(bookmark.id)                        // the current tab is blank: it opens here
+    #expect(relaunched.hasPage && relaunched.tabs.open.count == 1)
+    #expect(await browserEventually { relaunched.title == "Page A" })
+    #expect(relaunched.isCurrentBookmarked)
+    relaunched.toggleBookmark()                                 // star again: gone
+    #expect(relaunched.tabs.bookmarks.isEmpty)
+}
+
+@Test @MainActor func browserOpeningABookmarkThatIsAlreadyOpenSwitchesToItInsteadOfOpeningASecondCopy() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser()
+    browser.start()
+    browser.go("http://127.0.0.1:\(port)/a")
+    #expect(await browserEventually { browser.title == "Page A" })
+    let first = try #require(browser.tabs.selected)
+    browser.toggleBookmark()
+    let bookmark = try #require(browser.tabs.bookmarks.first)
+    browser.newTab()
+    browser.go("http://127.0.0.1:\(port)/b")
+    #expect(await browserEventually { browser.title == "Page B" })
+
+    browser.openBookmark(bookmark.id)
+    #expect(browser.tabs.selected == first && browser.tabs.open.count == 2)   // back to the one that has it
+    #expect(browser.title == "Page A")
+}
+
+@Test @MainActor func browserOpeningABookmarkFromAUsedTabOpensANewTabNextToIt() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser()
+    browser.start()
+    browser.go("http://127.0.0.1:\(port)/a")
+    #expect(await browserEventually { browser.title == "Page A" })
+    browser.toggleBookmark()
+    let bookmark = try #require(browser.tabs.bookmarks.first)
+    browser.go("http://127.0.0.1:\(port)/b")                   // this tab moves on from the bookmarked page
+    #expect(await browserEventually { browser.title == "Page B" && !browser.isLoading })
+    let here = try #require(browser.tabs.selected)
+
+    browser.openBookmark(bookmark.id)
+    #expect(browser.tabs.open.count == 2 && browser.tabs.selected != here)
+    #expect(browser.tabs.open.first?.id == here)                // the one that was in use is still there, untouched
+    #expect(await browserEventually { browser.title == "Page A" })
+}
+
+@Test @MainActor func browserTheStarNeedsAPageToBookmark() {
+    let browser = makeBrowser()
+    browser.start()
+    browser.toggleBookmark()                                    // a blank tab has nothing to bookmark
+    #expect(browser.tabs.bookmarks.isEmpty && !browser.isCurrentBookmarked)
+}
+
+@Test @MainActor func browserANewWindowFromAPageOpensAsANewTabNextToIt() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser()
+    browser.start()
+    browser.go("http://127.0.0.1:\(port)/a")
+    #expect(await browserEventually { browser.title == "Page A" })
+    let opener = try #require(browser.selectedPage)
+    browser.newTab()                                            // (a second tab after the first, to check the placement)
+    browser.select(opener.id)
+
+    let configuration = WKWebViewConfiguration()
+    configuration.websiteDataStore = .nonPersistent()
+    let popup = browser.openPopup(from: opener, configuration: configuration)
+    #expect(popup != nil)
+    #expect(browser.tabs.open.count == 2)                       // the opener and the popup (the unused blank tab went when it was left)
+    let ids = browser.tabs.open.map(\.id)
+    #expect(ids.first == opener.id && browser.tabs.selected == ids[1])                  // right after its opener, and selected
+    #expect(browser.hasPage && browser.selectedPage?.webView === popup)
+}
+
+@Test @MainActor func browserTheFirstVersionsSingleSavedAddressBecomesTheFirstTab() throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("browser-old-\(UUID()).json")
+    try Data(#"{"lastAddress":"https://web.whatsapp.com/"}"#.utf8).write(to: url)
+    let browser = makeBrowser(store: FileStore(url: url, defaultValue: BrowserState()))
+    #expect(browser.tabs.open.count == 1 && browser.tabs.open[0].url == "https://web.whatsapp.com/" && browser.tabs.selected == browser.tabs.open[0].id)
+}
+
+@Test @MainActor func browserPinnedTabsFromTheLastVersionBecomeBookmarksWhenTheFileIsRead() throws {
+    let teams = UUID(), other = UUID()
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("browser-pinned-\(UUID()).json")
+    let old = """
+    {"tabs":{"selected":"\(teams.uuidString)","sidebarOpen":false,
+     "pinned":[{"id":"\(teams.uuidString)","url":"https://teams.microsoft.com/v2/","title":"Microsoft Teams"}],
+     "open":[{"id":"\(other.uuidString)","url":"https://example.com/","title":"Example"}]}}
+    """
+    try Data(old.utf8).write(to: url)
+    let browser = makeBrowser(store: FileStore(url: url, defaultValue: BrowserState()))
+    #expect(browser.tabs.bookmarks.map(\.title) == ["Microsoft Teams"])
+    #expect(browser.tabs.open.map(\.id) == [other, teams] && browser.tabs.selected == teams)   // what was showing stays open
+}
+
+// MARK: Sleeping pages (the island stays light)
+
+@Test @MainActor func browserAPageNobodyIsWatchingFallsAsleepAndWakesAtTheSameAddress() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let clock = TestClock()
+    let browser = makeBrowser(sleepAfter: 120, clock: clock)
+    browser.start()
+    browser.setVisible(true)
+    browser.go("http://127.0.0.1:\(port)/a?x=1")
+    #expect(await browserEventually { browser.title == "Page A" && !browser.isLoading })
+    let first = try #require(browser.tabs.selected)
+    browser.newTab()                                            // looking at another tab now
+    #expect(browser.isAwake(first))
+
+    clock.advance(119)
+    let tooSoon = await browser.sleepIdlePages()
+    #expect(tooSoon == 0 && browser.isAwake(first))             // not yet
+    clock.advance(2)
+    let slept = await browser.sleepIdlePages()
+    #expect(slept == 1 && !browser.isAwake(first))              // 121 seconds unwatched: its page is gone
+    #expect(browser.tabs.entry(first)?.url == "http://127.0.0.1:\(port)/a?x=1")      // but the tab keeps its place, its address...
+    #expect(browser.tabs.entry(first)?.title == "Page A")       // ...and its name
+    #expect(browser.displayTitle(of: try #require(browser.tabs.entry(first))) == "Page A")
+
+    let requestsBefore = site.requests.filter { $0.path.hasPrefix("/a") }.count
+    browser.select(first)                                       // choose it: it wakes
+    #expect(browser.hasPage)
+    #expect(await browserEventually { browser.title == "Page A" && !browser.isLoading })
+    #expect(site.requests.filter { $0.path.hasPrefix("/a") }.count == requestsBefore + 1)   // loaded again from the same address
+}
+
+@Test @MainActor func browserThePageBeingWatchedNeverSleeps() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let clock = TestClock()
+    let browser = makeBrowser(sleepAfter: 120, clock: clock)
+    browser.start()
+    browser.setVisible(true)
+    browser.go("http://127.0.0.1:\(port)/a")
+    #expect(await browserEventually { browser.title == "Page A" })
+    clock.advance(10_000)                                       // hours with the tab open in front of the person
+    let slept = await browser.sleepIdlePages()
+    #expect(slept == 0 && browser.hasPage)
+}
+
+@Test @MainActor func browserWhenTheIslandClosesEvenTheShownPageCountsDownThenWakesWhenItOpensAgain() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let clock = TestClock()
+    let browser = makeBrowser(sleepAfter: 120, clock: clock)
+    browser.start()
+    browser.setVisible(true)
+    browser.go("http://127.0.0.1:\(port)/a")
+    #expect(await browserEventually { browser.title == "Page A" && !browser.isLoading })
+
+    browser.setVisible(false)                                   // the island closed (or another island tab was chosen)
+    clock.advance(60)
+    let early = await browser.sleepIdlePages()
+    #expect(early == 0 && browser.hasPage)                      // a short trip away costs nothing
+    clock.advance(70)
+    let slept = await browser.sleepIdlePages()
+    #expect(slept == 1 && !browser.hasPage)
+    #expect(browser.isWaking)                                   // it has somewhere to be, and is not up
+
+    browser.setVisible(true)                                    // the island opens on the Browser tab again
+    browser.start()
+    #expect(browser.hasPage && !browser.isWaking)
+    #expect(await browserEventually { browser.title == "Page A" })
+}
+
+@Test @MainActor func browserFreeMemoryNowPutsEveryTabToSleepExceptTheOneBeingLookedAt() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser()
+    browser.start()
+    browser.setVisible(true)
+    browser.go("http://127.0.0.1:\(port)/a")
+    #expect(await browserEventually { browser.title == "Page A" })
+    let first = try #require(browser.tabs.selected)
+    browser.newTab()
+    browser.go("http://127.0.0.1:\(port)/b")
+    #expect(await browserEventually { browser.title == "Page B" })
+    let second = try #require(browser.tabs.selected)
+
+    let slept = await browser.sleepOtherTabs()
+    #expect(slept == 1 && !browser.isAwake(first) && browser.isAwake(second))
+    #expect(browser.title == "Page B")                          // the one in front is untouched
+}
+
+@Test @MainActor func browserNothingIsHeldForABlankTabOrABookmark() {
+    let store = tempStore()
+    let browser = makeBrowser(store: store)
+    browser.start()
+    browser.setVisible(true)
+    #expect(browser.webView == nil && browser.selectedPage?.webView == nil)
+}
+
+@Test @MainActor func browserEveryTabCanBeClosedAndExactlyOneBlankTabToSearchFromIsLeft() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser()
+    browser.start()
+    browser.go("http://127.0.0.1:\(port)/a")
+    #expect(await browserEventually { browser.title == "Page A" })
+    browser.toggleBookmark()                                    // a bookmark exists, to prove it is not a tab
+    browser.newTab()
+    browser.go("http://127.0.0.1:\(port)/b")
+    #expect(await browserEventually { browser.title == "Page B" })
+    browser.newTab()
+    #expect(browser.tabs.open.count == 3)
+
+    for entry in browser.tabs.open { browser.close(entry.id) }
+    #expect(browser.tabs.open.count == 1)                       // only one tab...
+    #expect(browser.tabs.open[0].url == nil && !browser.hasPage && browser.selectedPage?.webView == nil)   // ...blank, to search from
+    #expect(browser.wantsAddressFocus && browser.address == "")
+    #expect(browser.tabs.bookmarks.count == 1)                  // and the bookmark is still one click away on that page
+
+    browser.close(try #require(browser.tabs.selected))          // closing that last blank tab changes nothing the person can see
+    #expect(browser.tabs.open.count == 1 && browser.tabs.open[0].url == nil && !browser.hasPage)
 }

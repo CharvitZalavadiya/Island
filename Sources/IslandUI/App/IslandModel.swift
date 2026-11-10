@@ -75,8 +75,8 @@ public final class IslandModel {
     public var selectedTab: IslandTab = .focus
     /// While pinned the island stays open. Not remembered between launches, so Island never opens by surprise.
     public var isPinned = false
-    /// Max mode: the open island is as big as most of the screen, and stays open (like a pin) until it is made small again.
-    /// Not remembered between launches either.
+    /// Max mode: the open island is as big as most of the screen. It closes by itself like any open island (pin it to keep it
+    /// open), and opens big again next time until Max is switched off. Not remembered between launches.
     public var isMax = false
     /// The size the open island's content is laid out at: the usual size, or the Max size set by the panel controller.
     public internal(set) var contentSize: CGSize = IslandMetrics.expandedSize

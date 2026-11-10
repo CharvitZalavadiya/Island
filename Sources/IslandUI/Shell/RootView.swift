@@ -12,7 +12,7 @@ enum IslandMetrics {
 /// The content for a tab.
 @MainActor
 @ViewBuilder
-func tabView(for tab: IslandTab, services: IslandServices, model: IslandModel) -> some View {
+func tabView(for tab: IslandTab, services: IslandServices) -> some View {
     switch tab {
     case .focus:
         FocusTab(services: services)
@@ -37,7 +37,7 @@ func tabView(for tab: IslandTab, services: IslandServices, model: IslandModel) -
     case .teams:
         TeamsTab(controller: services.teams)
     case .browser:
-        BrowserTab(controller: services.browser, model: model)
+        BrowserTab(controller: services.browser)
     case .tools:
         ToolsTab(controller: services.tools, nowPlaying: services.nowPlaying)
     }
@@ -59,7 +59,7 @@ struct RootView: View {
             if expanded {
                 VStack(spacing: 10) {
                     TabBar(model: model, openSettings: { services.showSettings() })
-                    tabView(for: model.selectedTab, services: services, model: model)
+                    tabView(for: model.selectedTab, services: services)
                 }
                 .padding(.top, model.topInset + 6)
                 .padding(.horizontal, 18 + radii.top)

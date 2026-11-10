@@ -17,6 +17,8 @@ struct SearchField: NSViewRepresentable {
     var onSubmit: () -> Void = {}
     /// Escape.
     var onCancel: () -> Void = {}
+    /// The person started typing (true), or left the box (false). Not called for changes made in code.
+    var onEditingChanged: (Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -69,8 +71,13 @@ struct SearchField: NSViewRepresentable {
         }
 
         func controlTextDidChange(_ notification: Notification) {
+            parent.onEditingChanged(true)
             guard let field = notification.object as? NSTextField, field.stringValue != parent.text else { return }
             parent.text = field.stringValue
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            parent.onEditingChanged(false)
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {

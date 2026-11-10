@@ -467,6 +467,7 @@ private final class GitHubTokenBox: TokenStoring, @unchecked Sendable {
     let polled = await teamsEventually { r.api.calls.filter { $0 == "chats" }.count > started }
     #expect(polled)
     r.controller.stop()
+    try? await Task.sleep(nanoseconds: 150_000_000)                   // a refresh that had already started may still finish
     let stopped = r.api.calls.filter { $0 == "chats" }.count
     try? await Task.sleep(nanoseconds: 300_000_000)
     #expect(r.api.calls.filter { $0 == "chats" }.count == stopped)    // and stops when it goes

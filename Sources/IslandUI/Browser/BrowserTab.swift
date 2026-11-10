@@ -83,6 +83,9 @@ struct BrowserTab: View {
                 Menu {
                     Button("Open in your own browser") { controller.openInDefaultBrowser() }
                         .disabled(controller.currentURL == nil)
+                    if controller.canBlockAds {
+                        Toggle("Block ads", isOn: Binding(get: { controller.adBlockEnabled }, set: { controller.setAdBlock($0) }))
+                    }
                     Button("Free memory now (put other tabs to sleep)") { Task { await controller.sleepOtherTabs() } }
                     Divider()
                     BrowserLayoutMenuItem(controller: controller)

@@ -80,7 +80,9 @@ public final class IslandServices {
         todoist = TodoistController()
         github = GitHubController()
         teams = TeamsController()
-        browser = BrowserController(store: FileStore(url: supportDirectory.appendingPathComponent("browser.json"), defaultValue: BrowserState()))
+        browser = BrowserController(
+            store: FileStore(url: supportDirectory.appendingPathComponent("browser.json"), defaultValue: BrowserState()),
+            adBlocker: BrowserAdBlocker())
         settings = model.settings
         tasks = TasksController(
             store: TaskStore(store: FileStore(url: supportDirectory.appendingPathComponent("tasks.json"), defaultValue: [])))

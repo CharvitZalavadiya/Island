@@ -60,6 +60,46 @@ private final class LocalSite: @unchecked Sendable {
                 body = "<html><head><title>Page A</title></head><body><a id=l href=\"/b\">to b</a></body></html>"
             case "/b":
                 body = "<html><head><title>Page B</title></head><body>b</body></html>"
+            case "/adpage":
+                body = "<html><head><title>Ad page</title></head><body><script src=\"/ads/ad.js\"></script><script src=\"/app.js\"></script></body></html>"
+            case "/ads/ad.js":
+                headers = "Content-Type: application/javascript\r\n"
+                body = "window.adLoaded = true;"
+            case "/app.js":
+                headers = "Content-Type: application/javascript\r\n"
+                body = "window.appLoaded = true;"
+            case "/yt":
+                body = """
+                <html><head><title>Fake YouTube</title></head><body><script>
+                var ytInitialPlayerResponse = {"videoDetails":{"title":"Video"},"adPlacements":[{"a":1}],"playerAds":[1],"adSlots":[1]};
+                window.parsed = JSON.parse('{"playerResponse":{"adPlacements":[1],"keep":2},"adSlots":[3],"other":4}');
+                window.fetched = null;
+                fetch('/youtubei/v1/player?key=x').then(function (r) { return r.json(); }).then(function (j) { window.fetched = j; });
+                window.otherFetched = null;
+                fetch('/other.json').then(function (r) { return r.json(); }).then(function (j) { window.otherFetched = j; });
+                </script></body></html>
+                """
+            case "/youtubei/v1/player":
+                headers = "Content-Type: application/json\r\n"
+                body = #"{"videoDetails":{"title":"Fetched"},"adPlacements":[1],"playerAds":[2],"adSlots":[3]}"#
+            case "/other.json":
+                headers = "Content-Type: application/json\r\n"
+                body = #"{"adPlacements":["not youtube's request, left alone by the fetch layer"],"x":1}"#
+            case "/ytcss":
+                body = "<html><head><title>Css</title></head><body><ytd-ad-slot-renderer id=\"ad\">Ad</ytd-ad-slot-renderer><div id=\"real\">Real</div></body></html>"
+            case "/skip":
+                body = """
+                <html><head><title>Skip</title></head><body>
+                <div id="movie_player" class="html5-video-player ad-showing"><video class="html5-main-video" id="v"></video>
+                <button class="ytp-skip-ad-button" onclick="window.skipped = true"></button></div>
+                <script>
+                var v = document.getElementById('v');
+                var time = 0;
+                Object.defineProperty(v, 'duration', { get: function () { return 30; } });
+                Object.defineProperty(v, 'currentTime', { get: function () { return time; }, set: function (x) { time = x; } });
+                window.state = function () { return JSON.stringify({ skipped: !!window.skipped, time: time, muted: v.muted, rate: v.playbackRate }); };
+                </script></body></html>
+                """
             case "/old":
                 status = "302 Found"
                 headers += "Location: /b\r\n"
@@ -86,16 +126,40 @@ private final class Handed: @unchecked Sendable { var urls: [URL] = [] }
 /// A browser that keeps its sites only in memory, so tests never touch the real (persistent) logins.
 @MainActor private func makeBrowser(
     store: FileStore<BrowserState>? = nil, dataStore: WKWebsiteDataStore = .nonPersistent(), handed: Handed = Handed(),
-    sleepAfter: TimeInterval = 120, clock: TestClock = TestClock()
+    sleepAfter: TimeInterval = 120, clock: TestClock = TestClock(), adBlocker: BrowserAdBlocker? = nil
 ) -> BrowserController {
     _ = NSApplication.shared
-    return BrowserController(store: store ?? tempStore(), dataStore: dataStore, sleepAfter: sleepAfter, now: { clock.now }, openElsewhere: { handed.urls.append($0) })
+    return BrowserController(store: store ?? tempStore(), dataStore: dataStore, adBlocker: adBlocker, sleepAfter: sleepAfter, now: { clock.now }, openElsewhere: { handed.urls.append($0) })
+}
+
+/// An ad blocker that keeps its compiled rules in a private folder (never WebKit's real store), blocking `/ads/` on the local
+/// site as well, and treating the local address as YouTube.
+@MainActor private func makeBlocker(port: UInt16, youtubeHost: String? = "^127\\.0\\.0\\.1$") -> BrowserAdBlocker {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("island-rules-\(UUID())", isDirectory: true)
+    return BrowserAdBlocker(
+        extraBlockedFilters: ["127\\.0\\.0\\.1:\(port)/ads/"], youtubeHostPattern: youtubeHost, store: WKContentRuleListStore(url: folder))
+}
+
+/// Runs JavaScript in the page being shown and returns its text result ("" if it could not run).
+@MainActor private func script(_ browser: BrowserController, _ code: String) async -> String {
+    guard let view = browser.webView else { return "" }
+    return ((try? await view.evaluateJavaScript(code)) as? String) ?? ""
 }
 
 /// A clock the test moves by hand, so no test waits two real minutes for a page to fall asleep.
 private final class TestClock: @unchecked Sendable {
     var now = Date(timeIntervalSince1970: 1_800_000_000)
     func advance(_ seconds: TimeInterval) { now = now.addingTimeInterval(seconds) }
+}
+
+/// Like `browserEventually`, for a question that has to ask the page (which takes an `await`).
+@MainActor private func browserEventuallyAsking(timeout: TimeInterval = 8, _ condition: () async -> Bool) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if await condition() { return true }
+        try? await Task.sleep(nanoseconds: 40_000_000)
+    }
+    return await condition()
 }
 
 @MainActor private func browserEventually(timeout: TimeInterval = 8, _ condition: () -> Bool) async -> Bool {
@@ -601,4 +665,183 @@ private final class TestClock: @unchecked Sendable {
     browser.openBookmark(try #require(browser.tabs.bookmarks.first?.id))     // from home, a bookmark opens right here
     #expect(browser.hasPage && browser.tabs.open.count == 1)
     #expect(await browserEventually { browser.title == "Page A" })
+}
+
+// MARK: Ad blocking
+
+@Test @MainActor func adBlockTheRulesCompileInWebKitAndAreTheSameEveryTime() async throws {
+    let json = AdBlockRules.json()
+    #expect(json == AdBlockRules.json())                                                  // stable, so WebKit's saved copy is reused
+    let list = try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]])
+    #expect(list.count > 60)
+    #expect(list.contains { ($0["action"] as? [String: Any])?["type"] as? String == "css-display-none" })
+    #expect(AdBlockRules.identifier(for: json) == AdBlockRules.identifier(for: AdBlockRules.json()))
+    #expect(AdBlockRules.identifier(for: json) != AdBlockRules.identifier(for: AdBlockRules.json(extraBlockedFilters: ["x"])))   // new rules, new name
+
+    // WebKit itself accepts the real rules (its compiler rejects anything its syntax does not allow).
+    _ = NSApplication.shared
+    let blocker = BrowserAdBlocker(store: WKContentRuleListStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("island-rules-\(UUID())", isDirectory: true)))
+    await blocker.prepare()
+    #expect(blocker.problem == nil, "WebKit refused the rules: \(blocker.problem ?? "")")
+    #expect(blocker.ruleList != nil)
+}
+
+@Test @MainActor func adBlockAdRequestsAreStoppedAndTheRestOfThePageLoadsAndSwitchingItOffBringsThemBack() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser(adBlocker: makeBlocker(port: port))
+    #expect(browser.adBlockEnabled && browser.canBlockAds)
+    browser.start()
+    browser.go("http://127.0.0.1:\(port)/adpage")
+    #expect(await browserEventually { browser.title == "Ad page" && !browser.isLoading })
+    #expect(await browserEventuallyAsking { await script(browser, "window.appLoaded === true ? 'yes' : 'no'") == "yes" })     // the page itself works
+    try? await Task.sleep(nanoseconds: 300_000_000)
+    #expect(await script(browser, "typeof window.adLoaded") == "undefined")                                              // the ad script did not run
+    #expect(!site.requests.contains { $0.path.hasPrefix("/ads/") })                                                      // and was never even asked for
+
+    browser.setAdBlock(false)                                                                                            // switched off: the page reloads with its ads
+    #expect(await browserEventuallyAsking { await script(browser, "window.adLoaded === true ? 'yes' : 'no'") == "yes" })
+    #expect(site.requests.contains { $0.path.hasPrefix("/ads/") })
+
+    browser.setAdBlock(true)                                                                                             // and on again
+    let before = site.requests.filter { $0.path.hasPrefix("/ads/") }.count
+    try? await Task.sleep(nanoseconds: 800_000_000)
+    #expect(await browserEventuallyAsking { await script(browser, "typeof window.adLoaded") == "undefined" && !browser.isLoading })
+    #expect(site.requests.filter { $0.path.hasPrefix("/ads/") }.count == before)
+}
+
+@Test @MainActor func adBlockTheChoiceIsRememberedAndOnByDefaultAndAbsentWithoutABlocker() async throws {
+    _ = NSApplication.shared
+    let store = tempStore()
+    let first = makeBrowser(store: store, adBlocker: makeBlocker(port: 1))
+    #expect(first.adBlockEnabled)                                                // on unless switched off
+    first.setAdBlock(false)
+    #expect(!first.adBlockEnabled)
+    #expect(!makeBrowser(store: store, adBlocker: makeBlocker(port: 1)).adBlockEnabled)       // still off next launch
+    first.setAdBlock(true)
+    #expect(makeBrowser(store: store, adBlocker: makeBlocker(port: 1)).adBlockEnabled)
+
+    let none = makeBrowser()                                                     // no blocker: nothing to switch
+    #expect(!none.canBlockAds && !none.adBlockEnabled)
+    none.setAdBlock(true)
+    #expect(!none.adBlockEnabled)
+}
+
+@Test @MainActor func adBlockYouTubeAdDataIsRemovedBeforeThePlayerSeesIt() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser(adBlocker: makeBlocker(port: port))
+    browser.start()
+    browser.go("http://127.0.0.1:\(port)/yt")
+    #expect(await browserEventuallyAsking { await script(browser, "window.fetched ? 'yes' : 'no'") == "yes" })
+    // The page's own copy of the player data: the ad keys are gone, the video's details stay.
+    #expect(await script(browser, "Object.keys(ytInitialPlayerResponse).join(',')") == "videoDetails")
+    #expect(await script(browser, "ytInitialPlayerResponse.videoDetails.title") == "Video")
+    // Anything the page parses.
+    #expect(await script(browser, "JSON.stringify(window.parsed)") == #"{"playerResponse":{"keep":2},"other":4}"#)
+    // YouTube's own request for the player: the answer arrives without ads, the rest intact.
+    #expect(await script(browser, "JSON.stringify(window.fetched)") == #"{"videoDetails":{"title":"Fetched"}}"#)
+    // A request that is not YouTube's player/next is not touched by the fetch layer.
+    #expect(await browserEventuallyAsking { await script(browser, "window.otherFetched ? 'yes' : 'no'") == "yes" })
+    #expect(await script(browser, "String(window.otherFetched.adPlacements.length) + ',' + window.otherFetched.x") == "1,1")   // left exactly as it came
+}
+
+@Test @MainActor func adBlockNothingHappensOnASiteThatIsNotYouTube() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    // The same fake page, but the script is told YouTube is some other address: it must leave the page alone.
+    let browser = makeBrowser(adBlocker: makeBlocker(port: port, youtubeHost: "^not-this-host\\.example$"))
+    browser.start()
+    browser.go("http://127.0.0.1:\(port)/yt")
+    #expect(await browserEventuallyAsking { await script(browser, "window.fetched ? 'yes' : 'no'") == "yes" })
+    #expect(await script(browser, "Object.keys(ytInitialPlayerResponse).sort().join(',')") == "adPlacements,adSlots,playerAds,videoDetails")
+    #expect(await script(browser, "String(window.fetched.adPlacements)") == "1")
+    #expect(await script(browser, "typeof window.__islandAdBlock") == "undefined")
+}
+
+@Test @MainActor func adBlockTheDefaultScriptOnlyAppliesToYouTubeAddresses() throws {
+    let pattern = try NSRegularExpression(pattern: YouTubeAdScript.defaultHostPattern)
+    func matches(_ host: String) -> Bool { pattern.firstMatch(in: host, range: NSRange(host.startIndex..., in: host)) != nil }
+    for host in ["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "www.youtube-nocookie.com"] { #expect(matches(host), "\(host)") }
+    for host in ["notyoutube.com", "youtube.com.evil.example", "evilyoutube.com", "example.com", "teams.microsoft.com", "youtube.org"] { #expect(!matches(host), "\(host)") }
+    // A pattern with quotes or backslashes cannot break out of the script it is put in.
+    let hostile = YouTubeAdScript.source(hostPattern: "\"); alert(1); (\"")
+    #expect(hostile.contains("new RegExp(\"\\\"); alert(1); (\\\"\")"))
+}
+
+@Test @MainActor func adBlockYouTubeAdContainersAreHiddenAndRealContentIsNot() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser(adBlocker: makeBlocker(port: port))
+    browser.start()
+    browser.go("http://127.0.0.1:\(port)/ytcss")
+    #expect(await browserEventually { browser.title == "Css" && !browser.isLoading })
+    #expect(await browserEventuallyAsking { await script(browser, "getComputedStyle(document.getElementById('ad')).display") == "none" })
+    #expect(await script(browser, "getComputedStyle(document.getElementById('real')).display") == "block")
+}
+
+@Test @MainActor func adBlockAnAdThatStillPlaysIsSkippedThenSoundAndSpeedComeBack() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser(adBlocker: makeBlocker(port: port))
+    browser.start()
+    browser.go("http://127.0.0.1:\(port)/skip")
+    #expect(await browserEventually { browser.title == "Skip" && !browser.isLoading })
+    // While the ad shows: Skip is pressed, the ad is muted, sped up and sent to its end.
+    #expect(await browserEventuallyAsking(timeout: 5) { await script(browser, "JSON.parse(window.state()).skipped ? 'yes' : 'no'") == "yes" })
+    #expect(await browserEventuallyAsking(timeout: 5) { await script(browser, "JSON.parse(window.state()).time >= 29.9 ? 'yes' : 'no'") == "yes" })
+    #expect(await script(browser, "String(JSON.parse(window.state()).muted)") == "true")
+    #expect(await script(browser, "String(JSON.parse(window.state()).rate)") == "16")
+    // The ad is over: the sound and the speed are put back.
+    _ = await script(browser, "document.getElementById('movie_player').classList.remove('ad-showing'); 'ok'")
+    #expect(await browserEventuallyAsking(timeout: 5) { await script(browser, "String(JSON.parse(window.state()).muted) + ',' + String(JSON.parse(window.state()).rate)") == "false,1" })
+}
+
+/// The browser shown the way the island shows it (in a window, through its SwiftUI view), not driven from code alone.
+@MainActor private func showInPanel(_ browser: BrowserController) -> IslandPanel {
+    _ = NSApplication.shared
+    let hosting = NSHostingView(rootView: BrowserTab(controller: browser).frame(width: 900, height: 600).background(Color.black).preferredColorScheme(.dark))
+    hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
+    let panel = IslandPanel()
+    panel.setFrame(NSRect(x: -6000, y: -6000, width: 900, height: 600), display: false)
+    panel.contentView = hosting
+    panel.orderBack(nil)
+    return panel
+}
+
+@Test @MainActor func adBlockAPageShownInTheRealViewIsProtectedFromItsVeryFirstRequest() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser(adBlocker: makeBlocker(port: port))
+    let panel = showInPanel(browser)                            // the view is on screen BEFORE the first page is asked for
+    defer { panel.orderOut(nil) }
+    browser.start()
+    browser.setVisible(true)
+    browser.go("http://127.0.0.1:\(port)/adpage")
+    #expect(await browserEventually { browser.title == "Ad page" && !browser.isLoading })
+    #expect(await browserEventuallyAsking { await script(browser, "window.appLoaded === true ? 'yes' : 'no'") == "yes" })
+    try? await Task.sleep(nanoseconds: 300_000_000)
+    #expect(await script(browser, "typeof window.adLoaded") == "undefined", "the first page after launch loaded unprotected")
+    #expect(!site.requests.contains { $0.path.hasPrefix("/ads/") })
+}
+
+@Test @MainActor func adBlockTheYouTubeScriptIsAlsoOnTheFirstPageWhenShownInTheRealView() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let browser = makeBrowser(adBlocker: makeBlocker(port: port))
+    let panel = showInPanel(browser)
+    defer { panel.orderOut(nil) }
+    browser.start()
+    browser.setVisible(true)
+    browser.go("http://127.0.0.1:\(port)/yt")
+    #expect(await browserEventuallyAsking { await script(browser, "window.fetched ? 'yes' : 'no'") == "yes" })
+    #expect(await script(browser, "typeof window.__islandAdBlock") == "boolean")
+    #expect(await script(browser, "Object.keys(ytInitialPlayerResponse).join(',')") == "videoDetails")
 }

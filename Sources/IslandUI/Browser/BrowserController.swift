@@ -10,10 +10,13 @@ struct BrowserState: Codable, Equatable {
     var tabs: BrowserTabList?
     /// From the first version, which had one page and no tabs: becomes the first tab once.
     var lastAddress: String?
+    /// Whether ads are blocked. On unless it was switched off.
+    var adBlock: Bool?
 
-    init(tabs: BrowserTabList? = nil, lastAddress: String? = nil) {
+    init(tabs: BrowserTabList? = nil, lastAddress: String? = nil, adBlock: Bool? = nil) {
         self.tabs = tabs
         self.lastAddress = lastAddress
+        self.adBlock = adBlock
     }
 }
 
@@ -52,8 +55,12 @@ final class BrowserPage: Identifiable {
     private(set) var progress: Double = 0
     private(set) var canGoBack = false
     private(set) var canGoForward = false
-    /// A page was asked for (until then the tab shows the new-tab page).
+    /// A page was asked for and is on its way (until then the tab shows the new-tab page).
     private(set) var showsWeb = false
+    /// A page was asked for but has not been started yet: it waits for the ad-blocking rules (a moment, the first time after
+    /// launch). Until they are ready there is no web view at all, so the page can never load without them.
+    private(set) var pendingURL: URL?
+    var isOpening: Bool { pendingURL != nil }
     var message: String?
 
     @ObservationIgnored private(set) var webView: IslandWebView?
@@ -80,6 +87,7 @@ final class BrowserPage: Identifiable {
         if let webView { return webView }
         let configuration = given ?? WKWebViewConfiguration()
         if given == nil, let store = owner?.dataStore { configuration.websiteDataStore = store }
+        owner?.installBlocking(on: configuration.userContentController)
         let view = IslandWebView(frame: .zero, configuration: configuration)
         view.customUserAgent = BrowserController.userAgent
         view.allowsBackForwardNavigationGestures = true
@@ -101,8 +109,21 @@ final class BrowserPage: Identifiable {
     }
 
     func load(_ url: URL) {
-        makeWebView().load(URLRequest(url: url))
-        showsWeb = true
+        guard let owner, owner.isPreparingBlocker else {
+            pendingURL = nil
+            showsWeb = true
+            makeWebView().load(URLRequest(url: url))
+            return
+        }
+        // The web view is not made (and the tab does not show it) until the rules are ready: a view made earlier would load
+        // the page with no ad blocking. If a second address is asked for meanwhile, the latest one wins.
+        pendingURL = url
+        owner.afterBlockerReady { [weak self] in
+            guard let self, let target = self.pendingURL else { return }   // closed, sent home, or already started
+            self.pendingURL = nil
+            self.showsWeb = true
+            self.makeWebView().load(URLRequest(url: target))
+        }
     }
 
     /// This page is the target of a popup: WebKit loads into it by itself.
@@ -117,6 +138,7 @@ final class BrowserPage: Identifiable {
         observations = []
         webView = nil
         coordinator = nil
+        pendingURL = nil
         url = nil
         isLoading = false
         progress = 0
@@ -270,6 +292,13 @@ final class BrowserController {
     private(set) var tabs: BrowserTabList
 
     @ObservationIgnored private let injectedDataStore: WKWebsiteDataStore?
+    // Ad blocking.
+    @ObservationIgnored private let adBlocker: BrowserAdBlocker?
+    @ObservationIgnored private var blockerStarted = false
+    @ObservationIgnored private var blockerReady = false
+    @ObservationIgnored private var waitingForBlocker: [() -> Void] = []
+    /// Whether ads are blocked (the person's choice, and a blocker exists).
+    private(set) var adBlockEnabled: Bool
     @ObservationIgnored private var pages: [UUID: BrowserPage] = [:]
     @ObservationIgnored private let store: FileStore<BrowserState>
     @ObservationIgnored private let openElsewhere: (URL) -> Void
@@ -289,15 +318,18 @@ final class BrowserController {
     nonisolated static let defaultSleepAfter: TimeInterval = 120
 
     init(
-        store: FileStore<BrowserState>, dataStore: WKWebsiteDataStore? = nil, sleepAfter: TimeInterval = BrowserController.defaultSleepAfter,
+        store: FileStore<BrowserState>, dataStore: WKWebsiteDataStore? = nil, adBlocker: BrowserAdBlocker? = nil,
+        sleepAfter: TimeInterval = BrowserController.defaultSleepAfter,
         now: @escaping () -> Date = { Date() }, openElsewhere: @escaping (URL) -> Void = { url in _ = NSWorkspace.shared.open(url) }
     ) {
         self.store = store
         self.injectedDataStore = dataStore
+        self.adBlocker = adBlocker
         self.sleepAfter = sleepAfter
         self.now = now
         self.openElsewhere = openElsewhere
         let saved = store.load()
+        adBlockEnabled = adBlocker != nil && (saved.adBlock ?? true)
         var list = saved.tabs ?? BrowserTabList.fresh(url: saved.lastAddress)
         list.repair()
         tabs = list
@@ -316,7 +348,7 @@ final class BrowserController {
     /// The selected tab shows a page (otherwise the new-tab page shows).
     var hasPage: Bool { selectedPage?.showsWeb ?? false }
     /// The selected tab has somewhere to be but its page is not up yet (it was asleep, or the island has just opened).
-    var isWaking: Bool { !hasPage && tabs.selectedEntry?.url != nil }
+    var isWaking: Bool { (!hasPage && tabs.selectedEntry?.url != nil) || (selectedPage?.isOpening ?? false) }
 
     /// Whether the page being shown is bookmarked (the star is filled).
     var isCurrentBookmarked: Bool {
@@ -334,7 +366,7 @@ final class BrowserController {
     }
 
     /// The address bar takes the keyboard by itself on a tab that is blank and has nothing to open.
-    var wantsAddressFocus: Bool { !hasPage && tabs.selectedEntry?.url == nil }
+    var wantsAddressFocus: Bool { !hasPage && tabs.selectedEntry?.url == nil && !(selectedPage?.isOpening ?? false) }
 
     /// What a tab is called in the sidebar, awake or asleep.
     func displayTitle(of entry: BrowserTabList.Entry) -> String {
@@ -633,6 +665,51 @@ final class BrowserController {
         sleepTimer?.tolerance = interval / 2
     }
 
+    // MARK: Ad blocking
+
+    /// Whether the person can switch ad blocking on and off here (there is a blocker).
+    var canBlockAds: Bool { adBlocker != nil }
+
+    /// Ad blocking is on but its rules are not ready yet (the first moments after launch).
+    fileprivate var isPreparingBlocker: Bool { adBlockEnabled && !blockerReady }
+
+    /// Runs `work` once the rules are ready (now, if they are), starting to prepare them the first time.
+    fileprivate func afterBlockerReady(_ work: @escaping () -> Void) {
+        guard let adBlocker, !blockerReady else { work(); return }
+        waitingForBlocker.append(work)
+        guard !blockerStarted else { return }
+        blockerStarted = true
+        Task { @MainActor in
+            await adBlocker.prepare()
+            blockerReady = true
+            let queued = waitingForBlocker
+            waitingForBlocker = []
+            queued.forEach { $0() }
+        }
+    }
+
+    /// Puts ad blocking on a new page's content controller, if it is on.
+    fileprivate func installBlocking(on controller: WKUserContentController) {
+        guard adBlockEnabled, blockerReady, let adBlocker else { return }
+        adBlocker.install(on: controller)
+    }
+
+    /// Switches ad blocking on or off. The page being shown reloads so the change shows; other pages change on their next load.
+    func setAdBlock(_ on: Bool) {
+        guard adBlocker != nil, on != adBlockEnabled else { return }
+        adBlockEnabled = on
+        save()
+        let apply = { [weak self] in
+            guard let self, let adBlocker = self.adBlocker else { return }
+            for page in self.pages.values {
+                guard let controller = page.webView?.configuration.userContentController else { continue }
+                if self.adBlockEnabled { adBlocker.install(on: controller) } else { adBlocker.uninstall(from: controller) }
+            }
+            self.webView?.reload()
+        }
+        if on { afterBlockerReady(apply) } else { apply() }
+    }
+
     // MARK: What the pages report
 
     fileprivate func pageFinished(_ page: BrowserPage) {
@@ -647,7 +724,7 @@ final class BrowserController {
     }
 
     private func save() {
-        try? store.save(BrowserState(tabs: tabs))
+        try? store.save(BrowserState(tabs: tabs, adBlock: adBlocker == nil ? nil : adBlockEnabled))
     }
 }
 

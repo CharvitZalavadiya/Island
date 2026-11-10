@@ -357,17 +357,25 @@ public final class IslandPanelController: NSObject {
 
     /// The screen with a notch if there is one, otherwise the main screen.
     private func targetScreen() -> NSScreen? {
-        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens.first
+        // Without a notch anywhere, the screen with the menu bar (the first one), not whichever has the keyboard focus.
+        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.screens.first ?? NSScreen.main
     }
+
+    /// Set for a copy started with `--simulate-no-notch`: shows the artificial notch even on a screen that has a real one.
+    var simulatesNoNotch = false
 
     private func updateFrame() {
         guard let screen = targetScreen() else { return }
-        let notch = NotchGeometry.notchRect(
+        let realNotch = simulatesNoNotch ? nil : NotchGeometry.notchRect(
             screenFrame: screen.frame,
             safeAreaTop: screen.safeAreaInsets.top,
             auxLeftWidth: screen.auxiliaryTopLeftArea?.width ?? 0,
             auxRightWidth: screen.auxiliaryTopRightArea?.width ?? 0)
-        model.topInset = notch?.height ?? 8
+        // No notch (an Intel Mac, an older MacBook, an external display): Island draws an artificial one, as tall as the
+        // menu bar and about as wide as a real notch, so everything else works exactly as it does around a real one.
+        let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
+        let notch: CGRect = realNotch ?? NotchGeometry.artificialNotch(screenFrame: screen.frame, menuBarHeight: menuBarHeight)
+        model.topInset = notch.height
 
         let frame: CGRect
         switch model.mode {

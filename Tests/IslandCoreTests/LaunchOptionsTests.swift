@@ -50,3 +50,10 @@ import Foundation
     #expect(LaunchOptions.parse(["Island", "--debug-alert"]).debugAlert)
     #expect(LaunchOptions.parse(["Island", "--debug-wings", "--debug-alert"]).debugWings)
 }
+
+@Test func simulatingNoNotchIsAnOptInSwitch() {
+    #expect(!LaunchOptions().simulateNoNotch)
+    #expect(!LaunchOptions.parse(["Island"]).simulateNoNotch)
+    #expect(LaunchOptions.parse(["Island", "--simulate-no-notch"]).simulateNoNotch)
+    #expect(LaunchOptions.parse(["Island", "--debug-wings", "--simulate-no-notch", "--support-dir", "/tmp/x"]).simulateNoNotch)
+}

@@ -7,7 +7,7 @@ private func resolved(_ text: String) -> BrowserAddress.Resolved { BrowserAddres
 @Test func aBareWebsiteNameGetsHttpsAndAFullAddressIsKept() {
     #expect(resolved("teams.microsoft.com") == .page(URL(string: "https://teams.microsoft.com")!))
     #expect(resolved("  web.whatsapp.com  ") == .page(URL(string: "https://web.whatsapp.com")!))
-    #expect(resolved("github.com/shipmnts/finance/pull/757") == .page(URL(string: "https://github.com/shipmnts/finance/pull/757")!))
+    #expect(resolved("github.com/acme/finance/pull/757") == .page(URL(string: "https://github.com/acme/finance/pull/757")!))
     #expect(resolved("example.com:8443/a?b=1#c") == .page(URL(string: "https://example.com:8443/a?b=1#c")!))
     #expect(resolved("https://teams.microsoft.com/v2/") == .page(URL(string: "https://teams.microsoft.com/v2/")!))
     #expect(resolved("HTTP://Example.com/x") == .page(URL(string: "HTTP://Example.com/x")!))

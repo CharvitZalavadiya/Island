@@ -154,7 +154,7 @@ private let chatsFixture = Data(#"""
       "lastMessagePreview": {
         "id": "1", "createdDateTime": "2026-11-07T10:15:30.1234567Z", "isDeleted": false, "messageType": "message",
         "from": {"user": {"id": "ravi-id", "displayName": "Ravi Shah", "userIdentityType": "aadUser"}},
-        "body": {"contentType": "html", "content": "<p>Can you look at <a href=\"https://github.com/shipmnts/finance/pull/757\">https://github.com/shipmnts/finance/pull/757</a> please?</p>"}
+        "body": {"contentType": "html", "content": "<p>Can you look at <a href=\"https://github.com/acme/finance/pull/757\">https://github.com/acme/finance/pull/757</a> please?</p>"}
       }
     },
     {
@@ -183,7 +183,7 @@ private let chatsFixture = Data(#"""
     #expect(ravi.webURL?.host == "teams.microsoft.com")
     let preview = try #require(ravi.preview)
     #expect(preview.sender == "Ravi Shah" && preview.mentionsPullRequest)
-    #expect(preview.text == "Can you look at https://github.com/shipmnts/finance/pull/757 please?")
+    #expect(preview.text == "Can you look at https://github.com/acme/finance/pull/757 please?")
     let expected = Date(timeIntervalSince1970: 1_762_510_530 + 365 * 86400 + 0.123)
     #expect(abs(try #require(preview.date).timeIntervalSince(expected)) < 0.01)   // seven fraction digits are read
     #expect(ravi.lastActivity == preview.date)
@@ -208,10 +208,10 @@ private let messagesFixture = Data(#"""
   "value": [
     {"id": "m3", "messageType": "message", "createdDateTime": "2026-11-07T10:20:00Z", "deletedDateTime": null,
      "from": {"user": {"id": "me-id", "displayName": "Charvit Z"}},
-     "body": {"contentType": "text", "content": "on it, see https://github.com/shipmnts/finance/pull/757/files"}},
+     "body": {"contentType": "text", "content": "on it, see https://github.com/acme/finance/pull/757/files"}},
     {"id": "m1", "messageType": "message", "createdDateTime": "2026-11-07T10:15:30.12Z", "deletedDateTime": null,
      "from": {"user": {"id": "ravi-id", "displayName": "Ravi Shah"}},
-     "body": {"contentType": "html", "content": "<p><at id=\"0\">Charvit</at> review please &amp; thanks<br>PR: <a href=\"https://nam.safelinks.protection.outlook.com/?url=https%3A%2F%2Fgithub.com%2Fshipmnts%2Ffinance%2Fpull%2F757&amp;data=x\">link</a></p>"},
+     "body": {"contentType": "html", "content": "<p><at id=\"0\">Charvit</at> review please &amp; thanks<br>PR: <a href=\"https://nam.safelinks.protection.outlook.com/?url=https%3A%2F%2Fgithub.com%2Facme%2Ffinance%2Fpull%2F757&amp;data=x\">link</a></p>"},
      "attachments": []},
     {"id": "m2", "messageType": "message", "createdDateTime": "2026-11-07T10:16:00Z",
      "from": {"application": {"id": "gh", "displayName": "GitHub"}},
@@ -234,8 +234,8 @@ private let messagesFixture = Data(#"""
     let m1 = try #require(messages.first { $0.id == "m1" })
     #expect(m1.senderName == "Ravi Shah" && m1.senderID == "ravi-id")
     #expect(m1.text == "@Charvit review please & thanks\nPR: link")
-    #expect(m1.runs.last?.url?.absoluteString == "https://github.com/shipmnts/finance/pull/757")   // the mail filter's wrapper is removed
-    #expect(m1.pullRequests.map(\.label) == ["shipmnts/finance #757"])
+    #expect(m1.runs.last?.url?.absoluteString == "https://github.com/acme/finance/pull/757")   // the mail filter's wrapper is removed
+    #expect(m1.pullRequests.map(\.label) == ["acme/finance #757"])
 
     // GitHub's own Teams app posts a card (no link in the words): the pull request is found inside it.
     let card = try #require(messages.first { $0.id == "m2" })
@@ -244,8 +244,8 @@ private let messagesFixture = Data(#"""
     #expect(card.pullRequests.first?.url.absoluteString == "https://github.com/acme/api/pull/12")
 
     let plain = try #require(messages.first { $0.id == "m3" })
-    #expect(plain.runs.compactMap(\.url).map(\.absoluteString) == ["https://github.com/shipmnts/finance/pull/757/files"])   // a bare address becomes a link
-    #expect(plain.pullRequests.map(\.label) == ["shipmnts/finance #757"])
+    #expect(plain.runs.compactMap(\.url).map(\.absoluteString) == ["https://github.com/acme/finance/pull/757/files"])   // a bare address becomes a link
+    #expect(plain.pullRequests.map(\.label) == ["acme/finance #757"])
 
     let file = try #require(messages.first { $0.id == "file" })
     #expect(file.runs.isEmpty && file.attachmentNames == ["report.pdf"])

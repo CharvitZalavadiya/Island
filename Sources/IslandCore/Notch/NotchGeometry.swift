@@ -5,7 +5,9 @@ public enum NotchGeometry {
     public static let maxWingWidth: CGFloat = 160
     /// The island while it announces an event: wide enough for a title, tall enough to clear the notch and show it.
     public static let alertSize = CGSize(width: 380, height: 104)
-    static let fallbackPillSize = CGSize(width: 120, height: 32)
+    /// How wide a real notch is, give or take (they run from about 160 to 200 points): the look-alike is made this wide.
+    public static let artificialNotchWidth: CGFloat = 190
+    static let fallbackPillSize = CGSize(width: artificialNotchWidth, height: 24)
 
     /// The notch's rect, or nil when the screen has no notch (`safeAreaTop == 0`).
     public static func notchRect(
@@ -17,6 +19,16 @@ public enum NotchGeometry {
         return CGRect(
             x: screenFrame.minX + auxLeftWidth, y: screenFrame.maxY - safeAreaTop,
             width: width, height: safeAreaTop)
+    }
+
+    /// The look-alike notch for a screen that has none (an Intel Mac, an older MacBook, an external display): about as wide as
+    /// a real one, as tall as the menu bar (as a real notch is), centered on the screen and flush with its top edge. A
+    /// menu bar that is hidden or reports nothing gives 24 points; nothing is made smaller than 22 or taller than 40.
+    public static func artificialNotch(screenFrame: CGRect, menuBarHeight: CGFloat) -> CGRect {
+        let height = menuBarHeight > 0 ? min(max(menuBarHeight, 22), 40) : 24
+        return CGRect(
+            x: screenFrame.midX - artificialNotchWidth / 2, y: screenFrame.maxY - height,
+            width: artificialNotchWidth, height: height)
     }
 
     /// The notch (or a top-center pill when there is none), widened by wings of at most `maxWingWidth` per side.

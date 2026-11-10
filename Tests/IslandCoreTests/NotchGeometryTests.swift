@@ -55,15 +55,50 @@ private func builtInNotch() -> CGRect {
 
 @Test func noNotchFallsBackToTopCenterPill() {
     let frame = NotchGeometry.collapsedFrame(notch: nil, screenFrame: screen, leftWing: 0, rightWing: 0)
-    #expect(frame == CGRect(x: 696, y: 950, width: 120, height: 32))
+    #expect(frame == CGRect(x: 661, y: 958, width: 190, height: 24))      // 190 wide, 24 tall, centered, flush with the top
     #expect(frame.midX == screen.midX)
     #expect(frame.maxY == screen.maxY)
 }
 
+@Test func theArtificialNotchIsAsTallAsTheMenuBarCenteredAndFlushWithTheTop() {
+    let notch = NotchGeometry.artificialNotch(screenFrame: screen, menuBarHeight: 25)
+    #expect(notch.size == CGSize(width: NotchGeometry.artificialNotchWidth, height: 25))
+    #expect(notch.midX == screen.midX && notch.maxY == screen.maxY)
+    #expect(screen.contains(notch))
+}
+
+@Test func theArtificialNotchStaysSensibleWhateverTheMenuBarReports() {
+    func height(_ reported: CGFloat) -> CGFloat { NotchGeometry.artificialNotch(screenFrame: screen, menuBarHeight: reported).height }
+    #expect(height(0) == 24)         // the menu bar is hidden (or reports nothing)
+    #expect(height(-5) == 24)
+    #expect(height(10) == 22)        // never thinner than 22
+    #expect(height(24) == 24)
+    #expect(height(37) == 37)
+    #expect(height(200) == 40)       // never taller than 40
+}
+
+@Test func theArtificialNotchIsCenteredOnASecondDisplayThatDoesNotStartAtZero() {
+    // An external display to the right of the built-in one, and another above it.
+    for frame in [CGRect(x: 1512, y: 0, width: 2560, height: 1440), CGRect(x: -800, y: 982, width: 1920, height: 1080)] {
+        let notch = NotchGeometry.artificialNotch(screenFrame: frame, menuBarHeight: 24)
+        #expect(notch.midX == frame.midX && notch.maxY == frame.maxY)
+        #expect(frame.contains(notch))
+    }
+}
+
+@Test func theArtificialNotchTakesWingsAndOpensLikeARealOne() {
+    let notch = NotchGeometry.artificialNotch(screenFrame: screen, menuBarHeight: 24)
+    let withWings = NotchGeometry.collapsedFrame(notch: notch, screenFrame: screen, leftWing: 40, rightWing: 60)
+    #expect(withWings.width == notch.width + 100 && withWings.height == notch.height && withWings.maxY == screen.maxY)
+    let open = NotchGeometry.expandedFrame(notch: notch, screenFrame: screen, size: CGSize(width: 620, height: 330))
+    #expect(open.midX == notch.midX && open.maxY == screen.maxY && open.size == CGSize(width: 620, height: 330))
+}
+
 @Test func noNotchPillAlsoGetsClampedWings() {
     let frame = NotchGeometry.collapsedFrame(notch: nil, screenFrame: screen, leftWing: 500, rightWing: 20)
-    let expectedMinX: CGFloat = 696 - NotchGeometry.maxWingWidth
-    let expectedMaxX: CGFloat = 816 + 20
+    let half = NotchGeometry.artificialNotchWidth / 2
+    let expectedMinX: CGFloat = screen.midX - half - NotchGeometry.maxWingWidth      // a 500-point wing is cut to the limit
+    let expectedMaxX: CGFloat = screen.midX + half + 20
     #expect(frame.minX == expectedMinX)
     #expect(frame.maxX == expectedMaxX)
 }

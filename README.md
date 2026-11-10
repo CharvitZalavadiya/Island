@@ -1,2 +1,92 @@
 # Island
-Use Mac Notch As Power
+
+**Use your Mac's notch as power.** Island turns the notch (or, on a Mac without one, a small notch of its own) into a
+Dynamic-Island-style control centre: a focus timer, your clipboard history, a file shelf, your calendar, GitHub pull
+requests, a pocket web browser with an ad blocker, and more. It lives at the top middle of the screen and opens when you point at
+it. It has no Dock icon and uses very little memory (about 16 MB when idle).
+
+## Download
+
+1. Get **`Island-1.0.0.dmg`** from the [Releases page](https://github.com/CharvitZalavadiya/Island/releases).
+2. Open it and drag **Island** onto **Applications**, then open Island from there.
+3. **The first time, macOS will warn you** that it cannot verify the app. That is because Island is not signed with a paid
+   Apple developer account (the code is open, read it here). To open it anyway, once:
+   - **System Settings → Privacy & Security**, scroll to the message about "Island", press **Open Anyway**; or
+   - in Terminal: `xattr -dr com.apple.quarantine /Applications/Island.app`
+4. Look at the top middle of your screen and point at it.
+
+To quit, open the island and choose the gear icon → **Quit Island**. It can start at login (Settings).
+
+### Requirements
+
+- macOS **14.2 (Sonoma) or later**.
+- **Any Mac.** On a MacBook with a notch the island sits in the notch. On every other screen (older MacBooks, Intel Macs,
+  external displays) Island draws a small artificial notch of its own, as tall as the menu bar, in the same place.
+- Apple Silicon and Intel are both built. Island is developed and tested on Apple Silicon with macOS 27; the Intel build and
+  older macOS versions are built but have not been tried yet, so please report problems.
+
+## Using it
+
+- **Open it** by pointing at the notch or clicking it; it closes when the pointer leaves. The **pin** keeps it open.
+- **Switch tabs** with the icons along the top, or swipe sideways. Tabs can be reordered in Settings (right-click the island).
+- **Max** (the arrows button) opens it big, on most of the screen; handy for the browser.
+- While it is closed, small **wings** beside the notch show what is live: the timer, keep-awake, music playing, a Focus mode.
+
+## What is in it
+
+| Tab | What it does |
+| --- | --- |
+| **Focus** | Pomodoro timer with a mascot (25 to choose from) and background sounds |
+| **Awake** | Keep the Mac awake (even with the lid closed), end a program, free a busy port |
+| **Clipboard** | History with search, text recognition in images, smart actions |
+| **Shelf** | A place to drop files, and your new screenshots |
+| **Stats** | CPU, memory, network, storage, a speed test, and a sound mixer (overall and per-app volume) |
+| **Camera** | A quick mirror before a call |
+| **Calendar** | Your events, with an alert and a Join button a few minutes before |
+| **Tasks** | Local tasks, or your Todoist tasks |
+| **GitHub** | Open a pull request in any repository, see yours and the ones waiting for your review, search any repository, review (approve, request changes, comment) |
+| **Teams** | *Experimental.* Your Microsoft Teams chats; needs an app you register in your own Microsoft Entra |
+| **Base64 & Cron** | Encode and decode, and explain a cron expression in words |
+| **Tools** | Now playing with controls, colour picker, a keyboard lock for cleaning |
+| **Browser** | Tabs (down the side or along the top), bookmarks, ad blocking (YouTube included), tabs that sleep to save memory |
+
+## Permissions and privacy
+
+Island asks only when you use a feature, and explains why:
+
+- **Camera** (Camera tab, only while it is showing) · **Calendars** (Calendar tab, read only) ·
+  **Audio capture** (per-app volume, only for an app you turn down) · **Accessibility** (the keyboard lock) ·
+  **Focus status** (the Focus indicator) · **Desktop folder** (new screenshots on the shelf).
+- **Keep awake with the lid closed** needs an administrator password once, to allow one `pmset` command. It is set up
+  from Settings and can be removed there.
+- Tokens you paste in (GitHub, Todoist) and the Microsoft sign-in are kept in the **macOS Keychain**, never in a file.
+- There is **no analytics and no telemetry**. Island talks only to the services you connect (GitHub, Todoist, Microsoft),
+  to the websites you open in its browser, and to Apple for the speed test.
+- The browser keeps its own logins, separate from your other browsers, and "Sign out of all sites and clear data" is in its menu.
+
+## Good to know
+
+- The **ad blocker** uses WebKit's content-blocking rules plus a YouTube-specific script. YouTube changes often and fights
+  ad blockers, so it will need updating from time to time.
+- **Now playing** uses a small helper that talks to a private part of macOS. It can stop working after a macOS update; the
+  tile then says "Player unavailable".
+- Island has **no automatic updates** yet: download a new release and replace the app.
+
+## Build from source
+
+You need macOS with Xcode installed (the Swift toolchain and the macOS SDK).
+
+```sh
+swift build                 # debug build
+swift test                  # the tests
+scripts/build-app.sh        # build/Island.app (Apple Silicon only, quick)
+scripts/release.sh          # dist/Island-<version>.dmg, universal (Apple Silicon + Intel), with checks
+```
+
+Details of signing and notarizing a release are in [docs/distribution.md](docs/distribution.md). To try how Island looks on
+a Mac without a notch, start the built app with `--simulate-no-notch`.
+
+## License
+
+[Apache License 2.0](LICENSE). The GitHub mark in the GitHub tab is from GitHub's
+[Octicons](https://github.com/primer/octicons) (MIT).

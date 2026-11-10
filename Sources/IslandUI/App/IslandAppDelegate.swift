@@ -38,6 +38,7 @@ public final class IslandAppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let controller = IslandPanelController(model: model, services: services)
+        controller.simulatesNoNotch = options.simulateNoNotch
         controller.show()
         self.model = model
         self.services = services

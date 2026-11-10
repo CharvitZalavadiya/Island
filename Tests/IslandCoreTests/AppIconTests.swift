@@ -110,7 +110,7 @@ private func largestImage() throws -> CGImage {
     #expect(script.contains("Contents/Resources"))
     // It must be copied before the app is signed, or the signature would not cover it.
     let copy = try #require(script.range(of: "AppIcon.icns"))
-    let sign = try #require(script.range(of: "codesign --force"))
+    let sign = try #require(script.range(of: "codesign \"${SIGN[@]}\""))     // the script signs through one list of options
     #expect(copy.lowerBound < sign.lowerBound)
 }
 

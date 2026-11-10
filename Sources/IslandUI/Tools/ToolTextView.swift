@@ -30,8 +30,8 @@ struct ToolTextView: NSViewRepresentable {
         textView.isAutomaticLinkDetectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
         textView.isGrammarCheckingEnabled = false
-        // macOS's Writing Tools button would pop out of the island's edge when the box is focused.
-        textView.writingToolsBehavior = .none
+        // macOS's Writing Tools button would pop out of the island's edge when the box is focused (macOS 15 and later have it).
+        if #available(macOS 15.0, *) { textView.writingToolsBehavior = .none }
         textView.textContainerInset = Self.inset
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true

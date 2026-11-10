@@ -118,11 +118,7 @@ final class AmbientPlayer {
         }
         let engine = AVAudioEngine()
         engine.attach(node)
-        do {
-            try engine.connectNode(node, to: engine.mainMixerNode, format: format)
-        } catch {
-            return nil
-        }
+        engine.connect(node, to: engine.mainMixerNode, format: format)
         return engine
     }
 }

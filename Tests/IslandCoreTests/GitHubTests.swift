@@ -196,23 +196,23 @@ private func data(_ text: String) -> Data { Data(text.utf8) }
 private let graphQLAnswer = """
 {"data": {
   "mine": {"nodes": [
-    {"number": 482, "title": "Add login page", "url": "https://github.com/shipmnts/app/pull/482", "isDraft": false,
+    {"number": 482, "title": "Add login page", "url": "https://github.com/acme/app/pull/482", "isDraft": false,
      "updatedAt": "2026-11-07T10:00:00Z", "mergeable": "MERGEABLE", "reviewDecision": "APPROVED",
-     "headRefName": "feature/login", "baseRefName": "main", "repository": {"nameWithOwner": "shipmnts/app"},
+     "headRefName": "feature/login", "baseRefName": "main", "repository": {"nameWithOwner": "acme/app"},
      "author": {"login": "jane"}, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}},
     null,
-    {"number": 91, "title": "Fix rounding", "url": "https://github.com/shipmnts/api/pull/91", "isDraft": true,
+    {"number": 91, "title": "Fix rounding", "url": "https://github.com/acme/api/pull/91", "isDraft": true,
      "updatedAt": "2026-11-05T09:00:00Z", "mergeable": "CONFLICTING", "reviewDecision": null,
-     "headRefName": "fix/round", "baseRefName": "master", "repository": {"nameWithOwner": "shipmnts/api"},
+     "headRefName": "fix/round", "baseRefName": "master", "repository": {"nameWithOwner": "acme/api"},
      "author": null, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "FAILURE"}}}]}},
     {"number": 7, "title": "No checks yet", "url": "https://github.com/o/r/pull/7", "isDraft": false, "updatedAt": null,
      "mergeable": "UNKNOWN", "reviewDecision": "REVIEW_REQUIRED", "headRefName": "x", "baseRefName": "main",
      "repository": {"nameWithOwner": "o/r"}, "author": {"login": "jane"}, "commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]}}
   ]},
   "review": {"nodes": [
-    {"number": 77, "title": "Bump deps", "url": "https://github.com/shipmnts/app/pull/77", "isDraft": false,
+    {"number": 77, "title": "Bump deps", "url": "https://github.com/acme/app/pull/77", "isDraft": false,
      "updatedAt": "2026-11-07T08:00:00Z", "mergeable": "MERGEABLE", "reviewDecision": "CHANGES_REQUESTED",
-     "headRefName": "deps", "baseRefName": "main", "repository": {"nameWithOwner": "shipmnts/app"}, "author": {"login": "bot"},
+     "headRefName": "deps", "baseRefName": "main", "repository": {"nameWithOwner": "acme/app"}, "author": {"login": "bot"},
      "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "PENDING"}}}]}}
   ]}
 }}
@@ -225,7 +225,7 @@ private let graphQLAnswer = """
 
     let approved = lists.mine[0]
     #expect(approved.checks == .passing && approved.review == .approved && !approved.hasConflicts && !approved.isDraft)
-    #expect(approved.headBranch == "feature/login" && approved.baseBranch == "main" && approved.repoFullName == "shipmnts/app")
+    #expect(approved.headBranch == "feature/login" && approved.baseBranch == "main" && approved.repoFullName == "acme/app")
     #expect(approved.updatedAt == ISO8601DateFormatter().date(from: "2026-11-07T10:00:00Z") && approved.authorLogin == "jane")
 
     let broken = lists.mine[1]
@@ -313,12 +313,12 @@ private let graphQLAnswer = """
 @Test func aSearchAnswerIsReadWithStatusAndSkipsWhatCannotBeSeen() throws {
     let found = try GitHubDecoding.pullRequests(fromGraphQLSearch: data("""
     {"data": {"results": {"nodes": [
-      {"number": 482, "title": "Add login page", "url": "https://github.com/shipmnts/app/pull/482", "state": "OPEN", "isDraft": false,
+      {"number": 482, "title": "Add login page", "url": "https://github.com/acme/app/pull/482", "state": "OPEN", "isDraft": false,
        "updatedAt": "2026-11-07T10:00:00Z", "mergeable": "MERGEABLE", "reviewDecision": "APPROVED", "headRefName": "feature/login",
-       "baseRefName": "main", "repository": {"nameWithOwner": "shipmnts/app"}, "author": {"login": "ravi-k"},
+       "baseRefName": "main", "repository": {"nameWithOwner": "acme/app"}, "author": {"login": "ravi-k"},
        "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}},
       null,
-      {"number": 300, "title": "Old work", "url": "https://github.com/shipmnts/app/pull/300", "state": "MERGED", "repository": {"nameWithOwner": "shipmnts/app"}}
+      {"number": 300, "title": "Old work", "url": "https://github.com/acme/app/pull/300", "state": "MERGED", "repository": {"nameWithOwner": "acme/app"}}
     ]}}}
     """))
     #expect(found.map(\.number) == [482, 300])
@@ -345,51 +345,51 @@ private let graphQLAnswer = """
 }
 
 @Test func theSearchRequestsAreExact() throws {
-    let repo = GitHubRepoRef(owner: "shipmnts", name: "finance")
-    let search = GitHubRequests.searchPullRequestsWithStatus(token: "ghp_secret", query: "repo:shipmnts/finance is:pr login")
+    let repo = GitHubRepoRef(owner: "acme", name: "finance")
+    let search = GitHubRequests.searchPullRequestsWithStatus(token: "ghp_secret", query: "repo:acme/finance is:pr login")
     #expect(search.httpMethod == "POST" && search.url?.absoluteString == "https://api.github.com/graphql")
     var sent = try #require(try JSONSerialization.jsonObject(with: search.httpBody ?? Data()) as? [String: Any])
-    #expect((sent["variables"] as? [String: String])?["query"] == "repo:shipmnts/finance is:pr login")
+    #expect((sent["variables"] as? [String: String])?["query"] == "repo:acme/finance is:pr login")
     #expect((sent["query"] as? String)?.contains("query PullRequestSearch") == true)
     #expect(String(data: search.httpBody ?? Data(), encoding: .utf8)?.contains("ghp_secret") == false)
 
     let byNumber = GitHubRequests.pullRequestWithStatus(token: "t", repo, number: 482)
     sent = try #require(try JSONSerialization.jsonObject(with: byNumber.httpBody ?? Data()) as? [String: Any])
     let variables = try #require(sent["variables"] as? [String: Any])
-    #expect(variables["owner"] as? String == "shipmnts" && variables["name"] as? String == "finance" && variables["number"] as? Int == 482)
+    #expect(variables["owner"] as? String == "acme" && variables["name"] as? String == "finance" && variables["number"] as? Int == 482)
 
     let rest = GitHubRequests.pullRequest(token: "t", repo, number: 482)
-    #expect(rest.url?.absoluteString == "https://api.github.com/repos/shipmnts/finance/pulls/482")
+    #expect(rest.url?.absoluteString == "https://api.github.com/repos/acme/finance/pulls/482")
 }
 
 @Test func whatIsTypedIntoTheSearchBecomesTheRightSearch() {
-    let repo = GitHubRepoRef(owner: "shipmnts", name: "finance")
+    let repo = GitHubRepoRef(owner: "acme", name: "finance")
     func plan(_ text: String, open: Bool = true) -> GitHubSearch.Plan { GitHubSearch.plan(for: text, in: repo, openOnly: open) }
 
     // Nothing typed: the latest.
-    #expect(plan("") == .search("repo:shipmnts/finance is:pr is:open sort:updated-desc"))
-    #expect(plan("   ", open: false) == .search("repo:shipmnts/finance is:pr sort:updated-desc"))
+    #expect(plan("") == .search("repo:acme/finance is:pr is:open sort:updated-desc"))
+    #expect(plan("   ", open: false) == .search("repo:acme/finance is:pr sort:updated-desc"))
     // Words are searched for.
-    #expect(plan("login form") == .search("repo:shipmnts/finance is:pr is:open login form sort:updated-desc"))
+    #expect(plan("login form") == .search("repo:acme/finance is:pr is:open login form sort:updated-desc"))
     // @name is an author, branch: a head branch, base: a base branch.
-    #expect(plan("@ravi-k") == .search("repo:shipmnts/finance is:pr is:open author:ravi-k sort:updated-desc"))
-    #expect(plan("branch:feat/OPS-19583-keda @ravi", open: false) == .search("repo:shipmnts/finance is:pr head:feat/OPS-19583-keda author:ravi sort:updated-desc"))
-    #expect(plan("base:staging") == .search("repo:shipmnts/finance is:pr is:open base:staging sort:updated-desc"))
-    #expect(plan("keda @ravi") == .search("repo:shipmnts/finance is:pr is:open keda author:ravi sort:updated-desc"))
+    #expect(plan("@ravi-k") == .search("repo:acme/finance is:pr is:open author:ravi-k sort:updated-desc"))
+    #expect(plan("branch:feat/ABC-123-login @ravi", open: false) == .search("repo:acme/finance is:pr head:feat/ABC-123-login author:ravi sort:updated-desc"))
+    #expect(plan("base:staging") == .search("repo:acme/finance is:pr is:open base:staging sort:updated-desc"))
+    #expect(plan("keda @ravi") == .search("repo:acme/finance is:pr is:open keda author:ravi sort:updated-desc"))
     // A lone "@" or an empty value is just text.
-    #expect(plan("@") == .search("repo:shipmnts/finance is:pr is:open @ sort:updated-desc"))
+    #expect(plan("@") == .search("repo:acme/finance is:pr is:open @ sort:updated-desc"))
 }
 
 @Test func aNumberOrALinkNamesOnePullRequest() {
-    let repo = GitHubRepoRef(owner: "shipmnts", name: "finance")
+    let repo = GitHubRepoRef(owner: "acme", name: "finance")
     func plan(_ text: String) -> GitHubSearch.Plan { GitHubSearch.plan(for: text, in: repo, openOnly: true) }
     #expect(plan("482") == .number(482) && plan("#482") == .number(482) && plan("  #482 ") == .number(482))
-    #expect(plan("https://github.com/shipmnts/finance/pull/482") == .number(482))
-    #expect(plan("https://github.com/Shipmnts/Finance/pull/482/files") == .number(482))       // any capitals, a deeper link
+    #expect(plan("https://github.com/acme/finance/pull/482") == .number(482))
+    #expect(plan("https://github.com/Acme/Finance/pull/482/files") == .number(482))       // any capitals, a deeper link
     // A link to a different repository is not this repository's pull request: it is just searched as text.
     if case .number = plan("https://github.com/other/repo/pull/9") { Issue.record("a link to another repository was taken as ours") }
     #expect(plan("0") != .number(0))                                                         // not a pull request number
-    if case .number = plan("OPS-19583") { Issue.record("a ticket id was taken as a number") }
+    if case .number = plan("ABC-12345") { Issue.record("a ticket id was taken as a number") }
 }
 
 // MARK: Reviewing a pull request
@@ -449,15 +449,15 @@ private let realReviews = #"[{"id": 2436955794, "user": {"login": "airspeedswift
 }
 
 @Test func theReviewRequestsAreExact() throws {
-    let repo = GitHubRepoRef(owner: "shipmnts", name: "finance")
+    let repo = GitHubRepoRef(owner: "acme", name: "finance")
     let list = GitHubRequests.reviews(token: "t", repo, number: 1204)
-    #expect(list.url?.absoluteString == "https://api.github.com/repos/shipmnts/finance/pulls/1204/reviews?per_page=100")
+    #expect(list.url?.absoluteString == "https://api.github.com/repos/acme/finance/pulls/1204/reviews?per_page=100")
 
     func sent(_ request: URLRequest) throws -> [String: Any] {
         try #require(try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any])
     }
     let approve = GitHubRequests.submitReview(token: "ghp_secret", repo, number: 1204, event: .approve, body: "   ")
-    #expect(approve.httpMethod == "POST" && approve.url?.absoluteString == "https://api.github.com/repos/shipmnts/finance/pulls/1204/reviews")
+    #expect(approve.httpMethod == "POST" && approve.url?.absoluteString == "https://api.github.com/repos/acme/finance/pulls/1204/reviews")
     #expect(try sent(approve).count == 1 && (try sent(approve))["event"] as? String == "APPROVE")        // no empty body sent
     #expect(String(data: approve.httpBody ?? Data(), encoding: .utf8)?.contains("ghp_secret") == false)
 
@@ -470,20 +470,20 @@ private let realReviews = #"[{"id": 2436955794, "user": {"login": "airspeedswift
 // MARK: Pull request links
 
 @Test func aPullRequestLinkOrShortFormNamesTheRepositoryAndNumber() {
-    let expected = GitHubPullRequestReference(repo: GitHubRepoRef(owner: "shipmnts", name: "finance"), number: 1204)
+    let expected = GitHubPullRequestReference(repo: GitHubRepoRef(owner: "acme", name: "finance"), number: 1204)
     for text in [
-        "https://github.com/shipmnts/finance/pull/1204",
-        "  https://github.com/shipmnts/finance/pull/1204\n",
-        "http://github.com/shipmnts/finance/pull/1204",
-        "github.com/shipmnts/finance/pull/1204",
-        "www.github.com/shipmnts/finance/pull/1204",
-        "https://github.com/shipmnts/finance/pull/1204/files",
-        "https://github.com/shipmnts/finance/pull/1204/commits/abc123",
-        "https://github.com/shipmnts/finance/pull/1204?diff=split",
-        "https://github.com/shipmnts/finance/pull/1204#issuecomment-99",
-        "https://github.com/shipmnts/finance/pull/1204/files#diff-abc",
-        "shipmnts/finance/pull/1204",
-        "shipmnts/finance#1204",
+        "https://github.com/acme/finance/pull/1204",
+        "  https://github.com/acme/finance/pull/1204\n",
+        "http://github.com/acme/finance/pull/1204",
+        "github.com/acme/finance/pull/1204",
+        "www.github.com/acme/finance/pull/1204",
+        "https://github.com/acme/finance/pull/1204/files",
+        "https://github.com/acme/finance/pull/1204/commits/abc123",
+        "https://github.com/acme/finance/pull/1204?diff=split",
+        "https://github.com/acme/finance/pull/1204#issuecomment-99",
+        "https://github.com/acme/finance/pull/1204/files#diff-abc",
+        "acme/finance/pull/1204",
+        "acme/finance#1204",
     ] {
         #expect(GitHubPullRequestReference.parse(text) == expected, "\(text)")
     }
@@ -494,17 +494,17 @@ private let realReviews = #"[{"id": 2436955794, "user": {"login": "airspeedswift
 
 @Test func thingsThatAreNotPullRequestsAreNotTakenForOne() {
     for text in [
-        "", "   ", "482", "#482", "hello", "shipmnts/finance",                                   // no number, or only a repository
-        "https://github.com/shipmnts/finance",                                                 // a repository
-        "https://github.com/shipmnts/finance/issues/1204",                                     // an issue
-        "https://github.com/shipmnts/finance/pull/",                                           // no number
-        "https://github.com/shipmnts/finance/pull/abc",
-        "https://github.com/shipmnts/finance/pull/0",
-        "https://example.com/shipmnts/finance/pull/1204",                                      // another website
-        "https://gitlab.com/shipmnts/finance/pull/1204",
-        "shipmnts/finance#abc", "shipmnts/finance#0", "shipmnts/finance#", "a/b/c#12",
-        "two words shipmnts/finance#12",
-        "please review https://github.com/shipmnts/finance/pull/1204",                         // a sentence, not a link
+        "", "   ", "482", "#482", "hello", "acme/finance",                                   // no number, or only a repository
+        "https://github.com/acme/finance",                                                 // a repository
+        "https://github.com/acme/finance/issues/1204",                                     // an issue
+        "https://github.com/acme/finance/pull/",                                           // no number
+        "https://github.com/acme/finance/pull/abc",
+        "https://github.com/acme/finance/pull/0",
+        "https://example.com/acme/finance/pull/1204",                                      // another website
+        "https://gitlab.com/acme/finance/pull/1204",
+        "acme/finance#abc", "acme/finance#0", "acme/finance#", "a/b/c#12",
+        "two words acme/finance#12",
+        "please review https://github.com/acme/finance/pull/1204",                         // a sentence, not a link
     ] {
         #expect(GitHubPullRequestReference.parse(text) == nil, "\(text)")
     }

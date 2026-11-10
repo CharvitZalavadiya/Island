@@ -17,6 +17,9 @@ public struct LaunchOptions: Equatable {
     /// running Island (its keep-awake session, history or settings), so it may run beside it.
     public var supportDirectory: URL?
 
+    /// Behaves as if the screen had no notch (shows the artificial one), to check how Island looks on a Mac without one.
+    public var simulateNoNotch = false
+
     public init() {}
 
     /// Reads the switches from `CommandLine.arguments`; anything unrecognised is ignored.
@@ -33,6 +36,8 @@ public struct LaunchOptions: Equatable {
                 options.debugStartPomodoro = true
             case "--debug-alert":
                 options.debugAlert = true
+            case "--simulate-no-notch":
+                options.simulateNoNotch = true
             case "--debug-open":
                 let next = arguments.index(after: index)
                 if next < arguments.endIndex, !arguments[next].hasPrefix("--") {

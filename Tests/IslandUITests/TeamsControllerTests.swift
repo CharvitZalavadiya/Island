@@ -357,23 +357,23 @@ private struct Rig {
 
 @Test @MainActor func teamsAClickOnAPullRequestOpensItInIslandAndACommandClickOpensItInTheBrowser() {
     let r = rig()
-    let pull = URL(string: "https://github.com/shipmnts/finance/pull/757")!
+    let pull = URL(string: "https://github.com/acme/finance/pull/757")!
 
     r.controller.activate(pull, commandHeld: false)
-    #expect(r.opened.pullRequests == ["https://github.com/shipmnts/finance/pull/757"] && r.opened.urls.isEmpty)
+    #expect(r.opened.pullRequests == ["https://github.com/acme/finance/pull/757"] && r.opened.urls.isEmpty)
 
     r.controller.activate(pull, commandHeld: true)                   // Command: the app that handles it (the browser), not Island
     #expect(r.opened.pullRequests.count == 1 && r.opened.urls == [pull])
 
     let other = URL(string: "https://example.com/docs")!             // not a pull request: always the browser
     r.controller.activate(other, commandHeld: false)
-    let issue = URL(string: "https://github.com/shipmnts/finance/issues/3")!
+    let issue = URL(string: "https://github.com/acme/finance/issues/3")!
     r.controller.activate(issue, commandHeld: false)
     #expect(r.opened.urls == [pull, other, issue] && r.opened.pullRequests.count == 1)
 
     // A pull request address with more on the end (the files tab) still opens for review.
-    r.controller.activate(URL(string: "https://github.com/shipmnts/finance/pull/757/files")!, commandHeld: false)
-    #expect(r.opened.pullRequests.last == "https://github.com/shipmnts/finance/pull/757/files")
+    r.controller.activate(URL(string: "https://github.com/acme/finance/pull/757/files")!, commandHeld: false)
+    #expect(r.opened.pullRequests.last == "https://github.com/acme/finance/pull/757/files")
 }
 
 @Test @MainActor func teamsTheChatsOwnPageOpensInTheBrowserOrTeams() {
@@ -399,7 +399,7 @@ private final class TeamsHub: GitHubAPI, @unchecked Sendable {
     func pullRequestLists(token: String) async throws -> GitHubPullRequestLists { GitHubPullRequestLists(mine: [], review: []) }
     func searchPullRequests(token: String, query: String) async throws -> [GitHubPullRequest] { [] }
     func pullRequest(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> GitHubPullRequest? {
-        GitHubPullRequest(number: number, title: "Use locking read", url: URL(string: "https://github.com/\(repo.fullName)/pull/\(number)")!, repoFullName: repo.fullName, authorLogin: "prasannshah", headBranch: "fix/x", baseBranch: "staging")
+        GitHubPullRequest(number: number, title: "Use locking read", url: URL(string: "https://github.com/\(repo.fullName)/pull/\(number)")!, repoFullName: repo.fullName, authorLogin: "dana-lee", headBranch: "fix/x", baseBranch: "staging")
     }
     func pullRequestDetails(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> GitHubPullRequestDetails {
         GitHubPullRequestDetails(pullRequest: try await pullRequest(token: token, repo, number: number)!, body: "body", commits: 1, changedFiles: 2, additions: 5, deletions: 1)
@@ -426,11 +426,11 @@ private final class GitHubTokenBox: TokenStoring, @unchecked Sendable {
     let github = GitHubController(api: TeamsHub(), tokens: GitHubTokenBox("ghp_saved"), refreshInterval: 0)
     #expect(github.connection == .disconnected && github.reviewTarget == nil)
 
-    await IslandServices.openPullRequestInGitHubTab("https://github.com/shipmnts/finance/pull/757", model: model, github: github)
+    await IslandServices.openPullRequestInGitHubTab("https://github.com/acme/finance/pull/757", model: model, github: github)
 
     #expect(model.selectedTab == .github)
-    #expect(github.reviewTarget?.number == 757 && github.reviewTarget?.repoFullName == "shipmnts/finance")
-    #expect(github.searchRepo?.fullName == "shipmnts/finance")
+    #expect(github.reviewTarget?.number == 757 && github.reviewTarget?.repoFullName == "acme/finance")
+    #expect(github.searchRepo?.fullName == "acme/finance")
     #expect(github.message == nil)
 }
 
@@ -438,7 +438,7 @@ private final class GitHubTokenBox: TokenStoring, @unchecked Sendable {
     let model = makeModel()
     model.selectedTab = .teams
     let github = GitHubController(api: TeamsHub(), tokens: GitHubTokenBox(nil), refreshInterval: 0)
-    await IslandServices.openPullRequestInGitHubTab("https://github.com/shipmnts/finance/pull/757", model: model, github: github)
+    await IslandServices.openPullRequestInGitHubTab("https://github.com/acme/finance/pull/757", model: model, github: github)
     #expect(model.selectedTab == .github && github.isReady && github.connection == .disconnected && github.reviewTarget == nil)
 }
 

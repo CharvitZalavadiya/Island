@@ -10,7 +10,7 @@ private final class Hub: GitHubAPI, @unchecked Sendable {
     let blog = GitHubRepo(id: 4, fullName: "octocat/blog", owner: "octocat", name: "blog", defaultBranch: "master")
     var pull: GitHubPullRequest { GitHubPullRequest(number: 482, title: "Friend's change", url: URL(string: "https://github.com/octocat/blog/pull/482")!, repoFullName: "octocat/blog", authorLogin: "ravi-k") }
     func account(token: String) async throws -> GitHubAccount { GitHubAccount(login: "jane") }
-    func repos(token: String) async throws -> [GitHubRepo] { [GitHubRepo(id: 1, fullName: "shipmnts/finance", owner: "shipmnts", name: "finance")] }
+    func repos(token: String) async throws -> [GitHubRepo] { [GitHubRepo(id: 1, fullName: "acme/finance", owner: "acme", name: "finance")] }
     func repo(token: String, _ ref: GitHubRepoRef) async throws -> GitHubRepo {
         guard ref.fullName.lowercased() == "octocat/blog" else { throw GitHubError.notFound }
         return blog

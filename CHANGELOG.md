@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Choose your tabs.** In Settings, each tab now has a switch: switch off the ones you do not use and they leave the island,
+  switch them on again whenever you like (all are on to start with, and at least one stays on). The up and down buttons are
+  gone: grab a row by its handle and drag it where you want it. A file dragged toward the notch only opens the island while
+  the Shelf tab is on, and a pull request link in Teams opens in your browser while the GitHub tab is off.
 - **A new app icon.** A light glass square with the open island hanging from the top: six tiles for Tasks, GitHub, Teams,
   Calendar, Player and Browser, and a progress bar. It replaces the dark square with the ghost.
 - **No more Keychain password prompts.** Opening the Tasks, GitHub or Teams tab could make macOS ask for your Mac password

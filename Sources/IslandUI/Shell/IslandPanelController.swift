@@ -148,9 +148,9 @@ public final class IslandPanelController: NSObject {
         }
         content.onContextMenu = { [weak self] event in self?.showContextMenu(for: event) }
         // Dragging files toward the notch opens the island on the Shelf tab (whatever tab it was on, even if it is
-        // already open or pinned), and dropping them stashes them.
+        // already open or pinned), and dropping them stashes them. With the Shelf tab switched off, nothing happens.
         content.onDragEntered = { [weak self] in
-            guard let self else { return }
+            guard let self, self.model.acceptsFileDrops else { return }
             self.refreshSuspension()
             self.model.fileDragEntered()
             self.send(.clicked)
@@ -278,7 +278,7 @@ public final class IslandPanelController: NSObject {
         case .nothing:
             break
         case .nearNotch:
-            guard model.mode == .collapsed else { return }
+            guard model.mode == .collapsed, model.acceptsFileDrops else { return }
             refreshSuspension()
             guard !machine.isSuspended else { return }
             model.fileDragEntered()

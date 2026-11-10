@@ -186,3 +186,84 @@ private func makeModel() -> IslandModel {
     #expect(model.alert == nil)
     #expect(model.activities == [.pomodoro])
 }
+
+// MARK: Tabs switched off in Settings
+
+@Test @MainActor func aTabSwitchedOffIsLeftOutOfTheIslandButStillListedForSettings() {
+    let model = makeModel()
+    model.settings.update { $0.hiddenTabs = ["camera", "teams"] }
+    #expect(!model.orderedTabs.contains(.camera) && !model.orderedTabs.contains(.teams))
+    #expect(model.orderedTabs.count == IslandTab.allCases.count - 2)
+    #expect(!model.isShown(.camera) && model.isShown(.focus))
+    // Settings still lists every tab, so a tab that was switched off can be switched on again.
+    #expect(model.allTabsInOrder.count == IslandTab.allCases.count && model.allTabsInOrder.contains(.camera))
+}
+
+@Test @MainActor func theTabsThatAreOnKeepTheUsersOrder() {
+    let model = makeModel()
+    model.settings.update {
+        $0.tabOrder = ["browser", "focus", "stats"]
+        $0.hiddenTabs = ["focus"]
+    }
+    #expect(model.orderedTabs.first == .browser)
+    #expect(model.orderedTabs.prefix(2) == [.browser, .stats])
+    #expect(model.allTabsInOrder.prefix(3) == [.browser, .focus, .stats])
+}
+
+@Test @MainActor func ifTheOpenTabIsSwitchedOffTheIslandShowsTheFirstTabThatIsOnAndGoesBackWhenItIsSwitchedOnAgain() {
+    let model = makeModel()
+    model.selectedTab = .stats
+    #expect(model.selectedTab == .stats)
+    model.settings.update { $0.hiddenTabs = ["stats"] }
+    #expect(model.selectedTab == model.orderedTabs.first && model.selectedTab != .stats)
+    model.settings.update { $0.hiddenTabs = [] }
+    #expect(model.selectedTab == .stats)
+}
+
+@Test @MainActor func askingForATabThatIsSwitchedOffShowsAnotherOne() {
+    let model = makeModel()
+    model.settings.update { $0.hiddenTabs = ["focus", "awake"] }
+    model.selectedTab = .awake
+    #expect(model.selectedTab == .clipboard)           // the first tab that is on
+    #expect(model.orderedTabs.contains(model.selectedTab))
+}
+
+@Test @MainActor func theIslandOpensOnTheFirstTabThatIsOnWhenTheDefaultOneIsOff() {
+    let model = makeModel()
+    model.settings.update { $0.hiddenTabs = ["focus"] }
+    #expect(model.selectedTab == .awake)
+}
+
+@Test @MainActor func swipingSkipsTabsThatAreSwitchedOff() {
+    let model = makeModel()
+    model.settings.update {
+        $0.tabOrder = ["stats", "focus", "calendar"]
+        $0.hiddenTabs = ["focus"]
+    }
+    model.selectedTab = .stats
+    model.selectAdjacentTab(1)
+    #expect(model.selectedTab == .calendar)             // over the tab that is off
+    model.selectAdjacentTab(-1)
+    #expect(model.selectedTab == .stats)
+}
+
+@Test @MainActor func withEveryTabSwitchedOffByAHandEditedFileTheIslandStillShowsThemAll() {
+    let model = makeModel()
+    model.settings.update { $0.hiddenTabs = IslandTab.allCases.map(\.rawValue) }
+    #expect(model.orderedTabs.count == IslandTab.allCases.count)
+    #expect(model.orderedTabs.contains(model.selectedTab))
+}
+
+@Test @MainActor func withTheShelfSwitchedOffDraggingFilesToTheIslandDoesNothing() {
+    let model = makeModel()
+    #expect(model.acceptsFileDrops)
+    model.settings.update { $0.hiddenTabs = ["shelf"] }
+    #expect(!model.acceptsFileDrops)
+    model.selectedTab = .stats
+    model.fileDragEntered()
+    #expect(model.selectedTab == .stats)
+    model.settings.update { $0.hiddenTabs = [] }
+    model.fileDragEntered()
+    #expect(model.selectedTab == .shelf)
+}
+

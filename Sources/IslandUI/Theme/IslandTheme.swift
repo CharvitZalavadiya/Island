@@ -26,6 +26,8 @@ enum IslandTheme {
     static let todoist = Color(hex: 0xE44332)
     /// The GitHub tab (the purple GitHub uses for pull requests).
     static let github = Color(hex: 0xA371F7)
+    /// Microsoft Teams' indigo.
+    static let teams = Color(hex: 0x7B83EB)
     /// Stats: a colour for each reading.
     static let statCPU = Color(hex: 0x34D399)
     static let statMemory = Color(hex: 0xA78BFA)

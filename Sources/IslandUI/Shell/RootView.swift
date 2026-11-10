@@ -2,7 +2,9 @@ import SwiftUI
 import IslandCore
 
 enum IslandMetrics {
-    static let expandedSize = CGSize(width: 560, height: 330)
+    /// Wide enough for every tab icon (12 at 34 pt, with the pin and the gear) with a little to spare: the tab bar needs 542 pt
+    /// of the content width, which is this width less the side padding.
+    static let expandedSize = CGSize(width: 620, height: 330)
     /// The side of a tool tile on the Tools tab: the same as a mascot tile in the Focus tab.
     static let toolTile: CGFloat = 42
 }
@@ -32,6 +34,8 @@ func tabView(for tab: IslandTab, services: IslandServices) -> some View {
         TextToolsTab(controller: services.textTools)
     case .github:
         GitHubTab(controller: services.github)
+    case .teams:
+        TeamsTab(controller: services.teams)
     case .tools:
         ToolsTab(controller: services.tools, nowPlaying: services.nowPlaying)
     }

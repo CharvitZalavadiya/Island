@@ -4,7 +4,7 @@ import Observation
 import IslandCore
 
 public enum IslandTab: String, CaseIterable, Hashable {
-    case focus, awake, clipboard, shelf, stats, camera, calendar, tasks, base64, tools, github
+    case focus, awake, clipboard, shelf, stats, camera, calendar, tasks, base64, tools, github, teams
 
     public var title: String {
         switch self {
@@ -19,6 +19,7 @@ public enum IslandTab: String, CaseIterable, Hashable {
         case .base64: "Base64 & Cron"
         case .tools: "Tools"
         case .github: "GitHub"
+        case .teams: "Teams"
         }
     }
 
@@ -36,6 +37,7 @@ public enum IslandTab: String, CaseIterable, Hashable {
         case .base64: IslandTheme.swatch
         case .tools: IslandTheme.tools
         case .github: IslandTheme.github
+        case .teams: IslandTheme.teams
         }
     }
 
@@ -52,6 +54,7 @@ public enum IslandTab: String, CaseIterable, Hashable {
         case .base64: "textformat.abc"
         case .tools: "wrench.and.screwdriver.fill"
         case .github: "arrow.triangle.pull"
+        case .teams: "bubble.left.and.bubble.right.fill"
         }
     }
 }

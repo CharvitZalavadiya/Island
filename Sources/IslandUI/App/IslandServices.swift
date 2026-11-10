@@ -22,6 +22,7 @@ public final class IslandServices {
     let tasks: TasksController
     let todoist: TodoistController
     let github: GitHubController
+    let teams: TeamsController
     let settings: SettingsStore
     let ambient: AmbientPlayer
     let processTools: ProcessToolsController
@@ -77,11 +78,25 @@ public final class IslandServices {
         mediaMonitor = MediaActivityMonitor(player: nowPlaying, model: model)
         todoist = TodoistController()
         github = GitHubController()
+        teams = TeamsController()
         settings = model.settings
         tasks = TasksController(
             store: TaskStore(store: FileStore(url: supportDirectory.appendingPathComponent("tasks.json"), defaultValue: [])))
+        // A pull request clicked in a Teams message opens for review in the GitHub tab.
+        teams.openPullRequest = { [weak model, weak github] link in
+            guard let model, let github else { return }
+            Task { @MainActor in await IslandServices.openPullRequestInGitHubTab(link, model: model, github: github) }
+        }
         // Allowing calendar access in the Calendar tab starts the alerts at once, no relaunch needed.
         calendar.onAuthorized = { [weak alertScheduler] in alertScheduler?.start() }
+    }
+
+    /// Shows the GitHub tab and opens a pull request link there for review. GitHub is started first: its saved token is only
+    /// read when its tab is first used, and the tab may not have been opened yet this time.
+    static func openPullRequestInGitHubTab(_ link: String, model: IslandModel, github: GitHubController) async {
+        model.selectedTab = .github
+        await github.start()
+        _ = await github.openPullRequest(link: link)
     }
 
     func showSettings() {

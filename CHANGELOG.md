@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - **The system slider everywhere.** The volume bars in the Stats tab and the progress bar in the player were drawn by hand;
   they are now the same macOS slider as the one in Settings, and the sound volume on the Focus tab is no longer forced to

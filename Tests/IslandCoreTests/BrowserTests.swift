@@ -217,3 +217,27 @@ private func ids(_ entries: [BrowserTabList.Entry]) -> [UUID] { entries.map(\.id
     let written = String(decoding: try JSONEncoder().encode(list), as: UTF8.self)
     #expect(!written.contains("pinned") && written.contains("bookmarks"))
 }
+
+@Test func theTabsAreOnTheSideAtFirstAndTheChoiceIsSavedAndOlderFilesReadAsTheSide() throws {
+    #expect(!BrowserTabList.fresh().tabsOnTop)
+    var list = BrowserTabList.fresh(url: "https://a.com")
+    list.tabsOnTop = true
+    let decoded = try JSONDecoder().decode(BrowserTabList.self, from: JSONEncoder().encode(list))
+    #expect(decoded.tabsOnTop && decoded == list)
+    // A file saved before the choice existed has no such key: the tabs stay where they were (the side).
+    let old = try JSONDecoder().decode(BrowserTabList.self, from: Data(#"{"open":[{"id":"\#(UUID().uuidString)","title":"A"}],"sidebarOpen":true}"#.utf8))
+    #expect(!old.tabsOnTop && old.sidebarOpen)
+}
+
+@Test func clearingATabTakesItBackToBlankAndLeavesTheRestAlone() {
+    var list = BrowserTabList.fresh(url: "https://a.com")
+    let id = list.open[0].id
+    list.update(id, url: "https://a.com/x", title: "A page")
+    let other = list.addOpen(url: "https://b.com")
+    list.toggleBookmark(title: "B", url: "https://b.com")
+    list.clear(id)
+    #expect(list.entry(id)?.url == nil && list.entry(id)?.title == "")
+    #expect(list.entry(other)?.url == "https://b.com" && list.bookmarks.count == 1 && list.open.count == 2)
+    list.clear(UUID())                                                         // an unknown tab changes nothing
+    #expect(list.open.count == 2)
+}

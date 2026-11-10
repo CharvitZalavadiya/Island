@@ -10,10 +10,11 @@ struct BrowserTab: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            if controller.tabs.tabsOnTop { BrowserTabStrip(controller: controller) }
             toolbar
             if let message = controller.message { messageBar(message) }
             HStack(spacing: 8) {
-                if controller.tabs.sidebarOpen { BrowserSidebar(controller: controller) }
+                if !controller.tabs.tabsOnTop, controller.tabs.sidebarOpen { BrowserSidebar(controller: controller) }
                 ZStack {
                     if controller.hasPage, let page = controller.selectedPage {
                         BrowserWebView(page: page)
@@ -44,8 +45,11 @@ struct BrowserTab: View {
     private var toolbar: some View {
         VStack(spacing: 5) {
             HStack(spacing: 6) {
-                iconButton("sidebar.left", help: controller.tabs.sidebarOpen ? "Hide the tab list" : "Show the tab list", enabled: true, on: controller.tabs.sidebarOpen) {
-                    controller.toggleSidebar()
+                // With the tabs along the top there is no list to show or hide.
+                if !controller.tabs.tabsOnTop {
+                    iconButton("sidebar.left", help: controller.tabs.sidebarOpen ? "Hide the tab list" : "Show the tab list", enabled: true, on: controller.tabs.sidebarOpen) {
+                        controller.toggleSidebar()
+                    }
                 }
                 iconButton("chevron.left", help: "Back", enabled: controller.canGoBack) { controller.goBack() }
                 iconButton("chevron.right", help: "Forward", enabled: controller.canGoForward) { controller.goForward() }
@@ -75,10 +79,13 @@ struct BrowserTab: View {
                     controller.openInDefaultBrowser()
                 }
                 iconButton("plus", help: "New tab", enabled: true) { controller.newTab() }
+                iconButton("house", help: "Home: back to the new-tab page", enabled: controller.hasPage || controller.isWaking) { controller.goHome() }
                 Menu {
                     Button("Open in your own browser") { controller.openInDefaultBrowser() }
                         .disabled(controller.currentURL == nil)
                     Button("Free memory now (put other tabs to sleep)") { Task { await controller.sleepOtherTabs() } }
+                    Divider()
+                    BrowserLayoutMenuItem(controller: controller)
                     Divider()
                     Button("Sign out of all sites and clear data…", role: .destructive) { Task { await controller.clearWebsiteData() } }
                 } label: {
@@ -187,6 +194,89 @@ struct BrowserSidebar: View {
         .frame(width: 190)
         .frame(maxHeight: .infinity)
         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .contextMenu { BrowserLayoutMenuItem(controller: controller) }
+    }
+}
+
+/// "Show tabs on top" / "Show tabs on the side": the one switch between the two layouts, offered in the right-click menus of
+/// both and in the browser's "..." menu.
+struct BrowserLayoutMenuItem: View {
+    let controller: BrowserController
+
+    var body: some View {
+        if controller.tabs.tabsOnTop {
+            Button { controller.setTabsOnTop(false) } label: { Label("Show tabs on the side", systemImage: "sidebar.left") }
+        } else {
+            Button { controller.setTabsOnTop(true) } label: { Label("Show tabs on top", systemImage: "rectangle.topthird.inset.filled") }
+        }
+    }
+}
+
+/// The tabs in a strip along the top, above the address bar. It scrolls sideways when there are many.
+struct BrowserTabStrip: View {
+    let controller: BrowserController
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 4) {
+                    ForEach(controller.tabs.open) { BrowserStripTab(controller: controller, entry: $0).id($0.id) }
+                }
+            }
+            .scrollIndicators(.hidden)
+            // The tab that is showing is never scrolled out of sight.
+            .onChange(of: controller.tabs.selected) { _, id in
+                if let id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) } }
+            }
+            .onAppear { if let id = controller.tabs.selected { proxy.scrollTo(id) } }
+        }
+        .frame(height: 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .contextMenu { BrowserLayoutMenuItem(controller: controller) }
+    }
+}
+
+/// One tab in the strip: a rounded pill, the selected one lighter. One that is asleep (to save memory) is a little dimmer.
+struct BrowserStripTab: View {
+    let controller: BrowserController
+    let entry: BrowserTabList.Entry
+    @State private var hovering = false
+
+    var body: some View {
+        let selected = controller.tabs.selected == entry.id
+        let title = controller.displayTitle(of: entry)
+        let asleep = !controller.isAwake(entry.id) && entry.url != nil
+        HStack(spacing: 6) {
+            BrowserSiteBadge(name: title, size: 14)
+            Text(verbatim: title)
+                .font(.system(size: 11.5, weight: selected ? .semibold : .regular))
+                .foregroundStyle(.white.opacity(selected ? 0.95 : (asleep ? 0.5 : 0.85)))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if hovering || selected {
+                Button { controller.close(entry.id) } label: {
+                    Image(systemName: "xmark").font(.system(size: 7.5, weight: .bold)).foregroundStyle(.white.opacity(0.7)).frame(width: 15, height: 15)
+                        .background(Color.white.opacity(hovering ? 0.14 : 0), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Close this tab")
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(minWidth: 104, maxWidth: 180)
+        .frame(height: 26)
+        .background(Color.white.opacity(selected ? 0.18 : (hovering ? 0.09 : 0.05)), in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture { controller.select(entry.id) }
+        .onHover { hovering = $0 }
+        .help(asleep ? "\(title) (asleep to save memory: choose it to wake it)" : title)
+        .contextMenu {
+            Button("Close") { controller.close(entry.id) }
+            Divider()
+            BrowserLayoutMenuItem(controller: controller)
+        }
     }
 }
 
@@ -224,7 +314,11 @@ struct BrowserTabRow: View {
         .contentShape(RoundedRectangle(cornerRadius: 8))
         .onTapGesture { controller.select(entry.id) }
         .onHover { hovering = $0 }
-        .contextMenu { Button("Close") { controller.close(entry.id) } }
+        .contextMenu {
+            Button("Close") { controller.close(entry.id) }
+            Divider()
+            BrowserLayoutMenuItem(controller: controller)
+        }
     }
 }
 

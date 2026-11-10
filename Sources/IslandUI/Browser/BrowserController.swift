@@ -483,6 +483,24 @@ final class BrowserController {
         save()
     }
 
+    /// Home: the current tab goes back to the new-tab page (its page is let go, so it costs nothing), with the address bar
+    /// ready. A tab that is already blank stays as it is. The page it was on is not kept in this tab: "+" opens a new tab
+    /// instead and leaves the page alone.
+    func goHome() {
+        guard let id = tabs.selected, hasPage || isWaking else { return }
+        pages[id]?.teardown()
+        pages[id] = nil
+        lastWatched[id] = nil
+        tabs.clear(id)
+        generalMessage = nil
+        address = ""
+        isEditingAddress = false
+        addressFocusRequest += 1
+        scheduleSleepCheck()
+        MemoryRelief.releaseSoon()
+        save()
+    }
+
     /// A page asked for a new window: it gets a new tab next to its own, made with WebKit's configuration.
     func openPopup(from opener: BrowserPage, configuration: WKWebViewConfiguration) -> WKWebView? {
         let id = tabs.addOpen(after: opener.id)
@@ -537,6 +555,15 @@ final class BrowserController {
 
     func toggleSidebar() {
         tabs.sidebarOpen.toggle()
+        save()
+    }
+
+    /// Chooses where the tabs are: in a strip along the top, or in the list down the side. Choosing the side shows the list
+    /// (it is what was just asked for); the sidebar button is only there while the tabs are on the side.
+    func setTabsOnTop(_ onTop: Bool) {
+        guard tabs.tabsOnTop != onTop else { return }
+        tabs.tabsOnTop = onTop
+        if !onTop { tabs.sidebarOpen = true }
         save()
     }
 

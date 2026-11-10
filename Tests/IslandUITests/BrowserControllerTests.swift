@@ -552,3 +552,53 @@ private final class TestClock: @unchecked Sendable {
     browser.close(try #require(browser.tabs.selected))          // closing that last blank tab changes nothing the person can see
     #expect(browser.tabs.open.count == 1 && browser.tabs.open[0].url == nil && !browser.hasPage)
 }
+
+@Test @MainActor func browserTheTabsCanBeOnTopOrOnTheSideAndTheChoiceIsRemembered() {
+    let store = tempStore()
+    let browser = makeBrowser(store: store)
+    #expect(!browser.tabs.tabsOnTop && !browser.tabs.sidebarOpen)         // at first: tabs on the side, list hidden
+
+    browser.setTabsOnTop(true)
+    #expect(browser.tabs.tabsOnTop && !browser.tabs.sidebarOpen)
+    #expect(makeBrowser(store: store).tabs.tabsOnTop)                      // still on top next launch
+
+    browser.setTabsOnTop(false)                                            // "Show tabs on the side": the list appears, it is what was asked for
+    #expect(!browser.tabs.tabsOnTop && browser.tabs.sidebarOpen)
+    let relaunched = makeBrowser(store: store)
+    #expect(!relaunched.tabs.tabsOnTop && relaunched.tabs.sidebarOpen)
+
+    browser.toggleSidebar()                                                // hiding the list on the side still works as before
+    #expect(!browser.tabs.sidebarOpen && !browser.tabs.tabsOnTop)
+    browser.setTabsOnTop(true)
+    browser.setTabsOnTop(true)                                             // asking for what is already so changes nothing
+    #expect(browser.tabs.tabsOnTop && !browser.tabs.sidebarOpen)
+}
+
+@Test @MainActor func browserHomeTakesTheCurrentTabBackToTheNewTabPageAndLetsGoOfThePage() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
+    let store = tempStore()
+    let browser = makeBrowser(store: store)
+    browser.start()
+    browser.goHome()                                            // a blank tab is already home: nothing to do
+    #expect(!browser.hasPage && browser.tabs.open.count == 1)
+
+    browser.go("http://127.0.0.1:\(port)/a")
+    #expect(await browserEventually { browser.title == "Page A" && !browser.isLoading })
+    browser.toggleBookmark()
+    let tab = try #require(browser.tabs.selected)
+    let request = browser.addressFocusRequest
+
+    browser.goHome()
+    #expect(browser.tabs.selected == tab && browser.tabs.open.count == 1)    // the same tab...
+    #expect(!browser.hasPage && !browser.isAwake(tab) && browser.webView == nil)   // ...on the new-tab page, its page let go
+    #expect(browser.tabs.entry(tab)?.url == nil && browser.address == "" && browser.wantsAddressFocus)
+    #expect(browser.addressFocusRequest == request + 1)                      // the address bar is ready to type in
+    #expect(browser.tabs.bookmarks.count == 1)                               // and the bookmark is one click away
+    #expect(makeBrowser(store: store).tabs.selectedEntry?.url == nil)        // it stays blank after a relaunch
+
+    browser.openBookmark(try #require(browser.tabs.bookmarks.first?.id))     // from home, a bookmark opens right here
+    #expect(browser.hasPage && browser.tabs.open.count == 1)
+    #expect(await browserEventually { browser.title == "Page A" })
+}

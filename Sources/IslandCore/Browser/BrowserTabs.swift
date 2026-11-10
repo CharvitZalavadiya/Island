@@ -32,14 +32,17 @@ public struct BrowserTabList: Codable, Equatable {
     public private(set) var open: [Entry]
     public private(set) var selected: UUID?
     public private(set) var bookmarks: [BrowserBookmark]
-    /// Whether the vertical tab list is showing. Off at first.
+    /// Whether the vertical tab list is showing (when the tabs are on the side). Off at first.
     public var sidebarOpen: Bool
+    /// Tabs in a strip along the top, above the address bar, instead of the list down the side.
+    public var tabsOnTop: Bool
 
-    public init(open: [Entry] = [], selected: UUID? = nil, bookmarks: [BrowserBookmark] = [], sidebarOpen: Bool = false) {
+    public init(open: [Entry] = [], selected: UUID? = nil, bookmarks: [BrowserBookmark] = [], sidebarOpen: Bool = false, tabsOnTop: Bool = false) {
         self.open = open
         self.selected = selected
         self.bookmarks = bookmarks
         self.sidebarOpen = sidebarOpen
+        self.tabsOnTop = tabsOnTop
     }
 
     /// One new tab (blank, or on `url`), selected.
@@ -49,7 +52,7 @@ public struct BrowserTabList: Codable, Equatable {
 
     // MARK: Saving and reading (including the format of the previous version, which had "pinned" tabs)
 
-    private enum CodingKeys: String, CodingKey { case open, selected, bookmarks, sidebarOpen }
+    private enum CodingKeys: String, CodingKey { case open, selected, bookmarks, sidebarOpen, tabsOnTop }
     private enum LegacyKeys: String, CodingKey { case pinned }
 
     public init(from decoder: Decoder) throws {
@@ -58,6 +61,7 @@ public struct BrowserTabList: Codable, Equatable {
         let selected = try container.decodeIfPresent(UUID.self, forKey: .selected)
         var bookmarks = try container.decodeIfPresent([BrowserBookmark].self, forKey: .bookmarks) ?? []
         sidebarOpen = try container.decodeIfPresent(Bool.self, forKey: .sidebarOpen) ?? false
+        tabsOnTop = try container.decodeIfPresent(Bool.self, forKey: .tabsOnTop) ?? false
 
         // Pinned tabs (always-open tabs) became bookmarks (links that only open when clicked). The one that was showing
         // stays open as an ordinary tab, so nothing the person has open disappears.
@@ -124,6 +128,13 @@ public struct BrowserTabList: Codable, Equatable {
         if selected == id { selected = open.isEmpty ? nil : open[min(index, open.count - 1)].id }
         if selected == nil { addOpen(id: blankID) }
         return true
+    }
+
+    /// Takes a tab back to blank (the new-tab page): no address, no name.
+    public mutating func clear(_ id: UUID) {
+        guard let index = open.firstIndex(where: { $0.id == id }) else { return }
+        open[index].url = nil
+        open[index].title = ""
     }
 
     /// Records where a tab is and what it is called.

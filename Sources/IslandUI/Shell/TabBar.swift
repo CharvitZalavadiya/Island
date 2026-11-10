@@ -4,6 +4,8 @@ import AppKit
 struct TabBar: View {
     @Bindable var model: IslandModel
     var openSettings: () -> Void = {}
+    /// A newer version of Island is out (its number): the gear menu says so and opens Settings, where it can be installed.
+    var updateVersion: String?
 
     var body: some View {
         HStack(spacing: 4) {
@@ -45,6 +47,10 @@ struct TabBar: View {
             .focusable(false)
             .help(model.isPinned ? "Unpin: let the island close again" : "Pin: keep the island open")
             Menu {
+                if let updateVersion {
+                    Button("Update to \(updateVersion)…") { openSettings() }
+                    Divider()
+                }
                 Button("Settings…") { openSettings() }
                 Divider()
                 Button("Quit Island") { NSApp.terminate(nil) }

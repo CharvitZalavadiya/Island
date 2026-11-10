@@ -9,18 +9,20 @@ final class SettingsWindowController {
     private let settings: SettingsStore
     private let launchAtLogin: LaunchAtLoginController
     private let keepAwake: KeepAwakeViewModel
+    private let update: UpdateController
 
-    init(settings: SettingsStore, launchAtLogin: LaunchAtLoginController, keepAwake: KeepAwakeViewModel) {
+    init(settings: SettingsStore, launchAtLogin: LaunchAtLoginController, keepAwake: KeepAwakeViewModel, update: UpdateController) {
         self.settings = settings
         self.launchAtLogin = launchAtLogin
         self.keepAwake = keepAwake
+        self.update = update
     }
 
     func show() {
         launchAtLogin.syncWithSystem()
         keepAwake.refreshPermission()
         if window == nil {
-            let controller = NSHostingController(rootView: SettingsView(settings: settings, launchAtLogin: launchAtLogin, keepAwake: keepAwake))
+            let controller = NSHostingController(rootView: SettingsView(settings: settings, launchAtLogin: launchAtLogin, keepAwake: keepAwake, update: update))
             let window = NSWindow(contentViewController: controller)
             window.title = "Island Settings"
             window.styleMask = [.titled, .closable]
@@ -37,6 +39,7 @@ struct SettingsView: View {
     let settings: SettingsStore
     let launchAtLogin: LaunchAtLoginController
     let keepAwake: KeepAwakeViewModel
+    let update: UpdateController
 
     var body: some View {
         let current = settings.settings
@@ -126,6 +129,8 @@ struct SettingsView: View {
                 }
             }
 
+            UpdateSettingsSection(update: update, settings: settings)
+
             Section("General") {
                 Toggle(
                     "Open Island when I log in",
@@ -137,7 +142,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 720)
+        .frame(width: 460, height: 780)
     }
 
     /// Moves a tab one place and saves the whole order, so the tab bar and the swipe follow it at once.

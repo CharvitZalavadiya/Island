@@ -30,7 +30,9 @@ public final class IslandAppDelegate: NSObject, NSApplicationDelegate {
         let model = IslandModel(settings: settings)
         // `--fast-pomodoro` treats configured minutes as seconds, for checking the timer by hand.
         let services = IslandServices(
-            model: model, supportDirectory: support, fastPomodoro: options.fastPomodoro)
+            model: model, supportDirectory: support, fastPomodoro: options.fastPomodoro, updateFeedURL: options.updateFeedURL,
+            // A copy started with its own data folder comes back the same way after an update.
+            relaunchArguments: options.supportDirectory.map { ["--support-dir", $0.path] } ?? [])
 
         // `--debug-wings` lights up every live activity, for checking the wing layout.
         if options.debugWings {
@@ -53,6 +55,7 @@ public final class IslandAppDelegate: NSObject, NSApplicationDelegate {
             model.isPinned = true
         }
         if options.debugAlert { services.alerts.showSample() }
+        if options.debugUpdateNow { Task { @MainActor in await services.update.runDebugUpdateNow() } }
         handleTerminationSignal()
     }
 

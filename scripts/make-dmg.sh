@@ -18,6 +18,10 @@ cp -R build/Island.app "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 cp Packaging/ReadMeFirst.txt "$STAGE/READ ME FIRST.txt"
 
-diskutil image create from --format UDZO --volumeName Island "$STAGE" "$OUT"
+# `diskutil image` only exists on newer macOS; older ones (a build machine, say) use hdiutil, which does the same.
+if ! diskutil image create from --format UDZO --volumeName Island "$STAGE" "$OUT"; then
+    rm -f "$OUT"
+    hdiutil create -srcfolder "$STAGE" -volname Island -format UDZO -ov "$OUT" >/dev/null
+fi
 rm -rf "$STAGE"
 echo "Built $OUT"

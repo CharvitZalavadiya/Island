@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.0
+
+- **Updates from inside Island.** Settings has an *Updates* section: *Check for updates* looks on GitHub, shows what is new,
+  and *Install and restart* downloads the new version, checks it, replaces the app and opens it again. No more deleting the
+  app and downloading the disk image by hand. Island also looks about once a day by itself (it can be switched off), and the
+  gear menu says when one is waiting.
+- The version now comes from one place (`Sources/IslandCore/Version.swift`), and a new release is built and published
+  automatically when changes are merged into `main`.
+
 ## 1.0.0
 
 The first public release.

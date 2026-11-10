@@ -17,6 +17,13 @@ it. It has no Dock icon and uses very little memory (about 16 MB when idle).
 
 To quit, open the island and choose the gear icon → **Quit Island**. It can start at login (Settings).
 
+### Updating
+
+Open Island → gear icon → **Settings → Updates → Check for updates**. If there is a newer version it shows what is new;
+**Install and restart** downloads it, replaces Island and opens it again. Nothing to delete, no disk image to open, and your
+settings, logins and bookmarks stay. Island also looks about once a day by itself (switch that off in the same place), and the
+gear menu says when an update is waiting. Versions before 1.1.0 cannot update themselves: install 1.1.0 once as above.
+
 ### Requirements
 
 - macOS **14.2 (Sonoma) or later**.
@@ -61,7 +68,8 @@ Island asks only when you use a feature, and explains why:
   from Settings and can be removed there.
 - Tokens you paste in (GitHub, Todoist) and the Microsoft sign-in are kept in the **macOS Keychain**, never in a file.
 - There is **no analytics and no telemetry**. Island talks only to the services you connect (GitHub, Todoist, Microsoft),
-  to the websites you open in its browser, and to Apple for the speed test.
+  to the websites you open in its browser, to Apple for the speed test, and to GitHub to ask whether a newer version exists
+  (about once a day; nothing about you or your Mac is sent; it can be switched off).
 - The browser keeps its own logins, separate from your other browsers, and "Sign out of all sites and clear data" is in its menu.
 
 ## Good to know
@@ -70,7 +78,8 @@ Island asks only when you use a feature, and explains why:
   ad blockers, so it will need updating from time to time.
 - **Now playing** uses a small helper that talks to a private part of macOS. It can stop working after a macOS update; the
   tile then says "Player unavailable".
-- Island has **no automatic updates** yet: download a new release and replace the app.
+- An update **replaces the app and restarts it**. Because the app is signed without a paid Apple certificate, macOS may ask
+  again for permissions (camera, calendar) after an update.
 
 ## Build from source
 
@@ -83,7 +92,8 @@ scripts/build-app.sh        # build/Island.app (Apple Silicon only, quick)
 scripts/release.sh          # dist/Island-<version>.dmg, universal (Apple Silicon + Intel), with checks
 ```
 
-Details of signing and notarizing a release are in [docs/distribution.md](docs/distribution.md). To try how Island looks on
+How releases are made (merging into `main` publishes one when the version in `Sources/IslandCore/Version.swift` is new) and
+how signing and notarizing work are in [docs/distribution.md](docs/distribution.md). To try how Island looks on
 a Mac without a notch, start the built app with `--simulate-no-notch`.
 
 ## License

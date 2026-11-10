@@ -1,0 +1,96 @@
+# Runs on every change that lands on main (a merged pull request, or a push), and publishes a release ONLY when the version
+# in Sources/IslandCore/Version.swift is one that has not been released yet.
+#
+#   - Merge as many times as you like without touching the version: the tests run and nothing is published.
+#   - When you want a release, raise the version in Sources/IslandCore/Version.swift (and add a "## <version>" section to
+#     CHANGELOG.md). The merge that carries it builds whatever is on main at that moment and publishes it as that version.
+#
+# The release is made as a draft first and published only when everything has been uploaded, so a failed run never leaves
+# a half-made release for anyone (or for Island's own updater) to find.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Island is written against a recent Swift, so use the newest Xcode the runner has.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Read the version
+        run: |
+          VERSION="$(sed -n 's/.*islandVersion = "\(.*\)".*/\1/p' Sources/IslandCore/Version.swift)"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Sources/IslandCore/Version.swift must say islandVersion = \"MAJOR.MINOR.PATCH\" (found: '$VERSION')"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "This is version $VERSION"
+
+      - name: Is this a new version? (only a new version is released)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Anything left half-made for this version by an earlier failed run is removed first.
+          if isDraft="$(gh release view "v$VERSION" --json isDraft --jq .isDraft 2>/dev/null)" && [ "$isDraft" = "true" ]; then
+            echo "Removing a draft left by an earlier failed run"
+            gh release delete "v$VERSION" --yes
+          fi
+          # Versions already released: published releases and tags.
+          released="$( { gh release list --limit 200 --json tagName,isDraft --jq '.[] | select(.isDraft | not) | .tagName'; git tag -l 'v*'; } | sort -u )"
+          echo "Already released: $(echo $released | tr '\n' ' ')"
+          decision="$(.github/scripts/release-decision.sh "$VERSION" $released)"
+          echo "Version in the file: $VERSION, so: $decision"
+          if [ "$decision" = "release" ]; then
+            echo "PUBLISH=true" >> "$GITHUB_ENV"
+          else
+            echo "::notice::Version $VERSION is already released, so nothing is published. To release, raise the version in Sources/IslandCore/Version.swift."
+          fi
+
+      - name: Test
+        run: swift test
+
+      - name: Release notes (from CHANGELOG.md, with the install guide)
+        if: env.PUBLISH == 'true'
+        run: .github/scripts/release-notes.sh "$VERSION" > release-notes.md && cat release-notes.md
+
+      - name: Build the universal app and the disk image
+        if: env.PUBLISH == 'true'
+        run: scripts/release.sh
+
+      - name: Keep the build with the run
+        if: env.PUBLISH == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Island-${{ env.VERSION }}
+          path: |
+            dist/Island-*.dmg
+            dist/Island-*.dmg.sha256
+
+      - name: Publish the release
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VERSION" \
+            "dist/Island-$VERSION.dmg" "dist/Island-$VERSION.dmg.sha256" \
+            --draft --target "$GITHUB_SHA" --title "Island $VERSION" --notes-file release-notes.md
+          gh release edit "v$VERSION" --draft=false --latest
+          echo "::notice::Published Island $VERSION: $(gh release view "v$VERSION" --json url --jq .url)"

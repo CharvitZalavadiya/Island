@@ -12,9 +12,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="$(sed -n 's/.*islandVersion = "\(.*\)".*/\1/p' Sources/IslandCore/Version.swift)"
-PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Packaging/Info.plist)"
-if [ -z "$VERSION" ] || [ "$VERSION" != "$PLIST_VERSION" ]; then
-    echo "error: the version in Sources/IslandCore/Version.swift ($VERSION) and Packaging/Info.plist ($PLIST_VERSION) must be the same." >&2
+if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    echo "error: Sources/IslandCore/Version.swift must say islandVersion = \"MAJOR.MINOR.PATCH\" (found: '$VERSION')." >&2
     exit 1
 fi
 
@@ -43,7 +42,7 @@ fi
 echo
 echo "== Checks"
 APP=build/Island.app
-echo "version:       $VERSION"
+echo "version:       $VERSION   (app says: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist"))"
 echo "signing:       $SIGNING"
 echo "architectures: $(lipo -archs "$APP/Contents/MacOS/Island")   (adapter: $(lipo -archs "$APP/Contents/Resources/NowPlayingAdapter.dylib"))"
 echo "minimum macOS: $(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")   (binary: $(vtool -show-build "$APP/Contents/MacOS/Island" | awk '/minos/ {print $2}' | sort -u | tr '\n' ' '))"
@@ -52,6 +51,7 @@ spctl --assess --type execute "$APP" 2>&1 | sed 's/^/gatekeeper:    /' || true
 echo "disk image:    $(du -h "$DMG" | cut -f1)  $DMG"
 cat "dist/Island-$VERSION.dmg.sha256"
 echo
-echo "== To publish (after committing, and with gh signed in to the account that owns the repository):"
-echo "  git tag v$VERSION && git push origin main v$VERSION"
-echo "  gh release create v$VERSION $DMG dist/Island-$VERSION.dmg.sha256 --title \"Island $VERSION\" --notes-file CHANGELOG.md"
+echo "== Publishing"
+echo "Normally you do not run this by hand: merging into main with a NEW version in Sources/IslandCore/Version.swift makes the"
+echo "Release workflow build and publish it (see docs/distribution.md). To publish these files yourself instead:"
+echo "  gh release create v$VERSION $DMG dist/Island-$VERSION.dmg.sha256 --title \"Island $VERSION\" --notes-file <(.github/scripts/release-notes.sh $VERSION)"

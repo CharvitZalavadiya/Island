@@ -1,0 +1,50 @@
+# Checks pull requests (and pushes to dev) so a change is tested before it can be merged into main.
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tags say which versions are already released
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      # A pull request that raises the version will publish a release when it is merged: say now if its notes are missing.
+      - name: Release notes exist if this pull request releases a new version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(sed -n 's/.*islandVersion = "\(.*\)".*/\1/p' Sources/IslandCore/Version.swift)"
+          released="$( { gh release list --limit 200 --json tagName,isDraft --jq '.[] | select(.isDraft | not) | .tagName'; git tag -l 'v*'; } | sort -u )"
+          decision="$(.github/scripts/release-decision.sh "$VERSION" $released)"
+          if [ "$decision" = "skip" ]; then
+            echo "Version $VERSION is already released: merging this publishes nothing."
+          else
+            echo "Version $VERSION is new: merging this into main will publish it. Checking its release notes."
+            .github/scripts/release-notes.sh "$VERSION" > /dev/null
+            echo "CHANGELOG.md has a section for $VERSION."
+          fi

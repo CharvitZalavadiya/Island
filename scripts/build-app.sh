@@ -24,6 +24,13 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/Island" "$APP/Contents/MacOS/Island"
 cp Packaging/Info.plist "$APP/Contents/Info.plist"
+# One place says what version this is: Sources/IslandCore/Version.swift. The built app is stamped from it.
+VERSION="$(sed -n 's/.*islandVersion = "\(.*\)".*/\1/p' Sources/IslandCore/Version.swift)"
+if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    echo "error: Sources/IslandCore/Version.swift must say islandVersion = \"MAJOR.MINOR.PATCH\" (found: '$VERSION')" >&2
+    exit 1
+fi
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 cp Packaging/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # The helper that reads and controls "Now Playing" for the player (explained at the top of the file).
 clang -dynamiclib -fobjc-arc -Wall "${CLANG_ARCHS[@]}" -framework Foundation \

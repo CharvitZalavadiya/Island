@@ -22,6 +22,7 @@ public final class IslandServices {
     let tasks: TasksController
     let todoist: TodoistController
     let github: GitHubController
+    let update: UpdateController
     let teams: TeamsController
     let browser: BrowserController
     let settings: SettingsStore
@@ -35,7 +36,7 @@ public final class IslandServices {
     let cameraPreview: PreviewView
     private var screenshotWatcher: ScreenshotWatcher?
 
-    public init(model: IslandModel, supportDirectory: URL, fastPomodoro: Bool = false) {
+    public init(model: IslandModel, supportDirectory: URL, fastPomodoro: Bool = false, updateFeedURL: URL? = nil, relaunchArguments: [String] = []) {
         pomodoro = PomodoroController(model: model, minutesAreSeconds: fastPomodoro)
 
         let keepAwakeController = KeepAwakeController(
@@ -59,7 +60,15 @@ public final class IslandServices {
 
         let login = LaunchAtLoginController(settings: model.settings, service: SystemLoginItem())
         launchAtLogin = login
-        settingsWindow = SettingsWindowController(settings: model.settings, launchAtLogin: login, keepAwake: keepAwake)
+        // Updates: the version is the running app's own (the built app says it in its Info.plist), and the address GitHub's
+        // newest release is asked at can be changed with `--update-feed` to try the updater without publishing anything.
+        let runningVersion = AppVersion(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "") ?? AppVersion(islandVersion)!
+        let updater = UpdateController(
+            feed: GitHubUpdateFeed(url: updateFeedURL ?? GitHubUpdateFeed.defaultURL),
+            installer: AppUpdateInstaller(currentVersion: runningVersion, allowAnyHost: updateFeedURL != nil),
+            settings: model.settings, currentVersion: runningVersion, relaunchArguments: relaunchArguments)
+        update = updater
+        settingsWindow = SettingsWindowController(settings: model.settings, launchAtLogin: login, keepAwake: keepAwake, update: updater)
 
         let capture = SystemCameraCapture()
         camera = CameraController(authorizer: SystemCameraAuthorizer(), capture: capture)
@@ -115,6 +124,7 @@ public final class IslandServices {
         clipboard.start()
         lockSounds.start()
         mediaMonitor.start()
+        update.startAutomaticChecks()
         startScreenshotWatcher()
     }
 

@@ -58,7 +58,7 @@ struct RootView: View {
                 .animation(.easeInOut(duration: 0.2), value: expanded)
             if expanded {
                 VStack(spacing: 10) {
-                    TabBar(model: model, openSettings: { services.showSettings() })
+                    TabBar(model: model, openSettings: { services.showSettings() }, updateVersion: services.update.availableVersion?.description)
                     tabView(for: model.selectedTab, services: services)
                 }
                 .padding(.top, model.topInset + 6)

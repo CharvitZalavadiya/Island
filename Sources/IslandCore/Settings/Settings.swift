@@ -24,6 +24,10 @@ public struct Settings: Codable, Equatable {
     public var mediaInMinimalView = true
     /// Which tasks the Tasks tab shows: "local" (Island's own list) or "todoist".
     public var tasksSource = "local"
+    /// Island looks for a newer version on GitHub now and then (at most about once a day) and says so in Settings.
+    public var checkForUpdates = true
+    /// When Island last asked GitHub for the newest version.
+    public var lastUpdateCheck: Date?
 
     public static let focusMinutesRange = 1...180
     public static let shortBreakMinutesRange = 1...60
@@ -34,7 +38,7 @@ public struct Settings: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case hoverOpens, collapseDelay, mascotID, shuffleMascots, focusMinutes, shortBreakMinutes, longBreakMinutes
         case longBreakEvery, autoChain, launchAtLogin, tabOrder, cameraMirrored, lockSounds, ambientSound, ambientVolume
-        case mediaInMinimalView, tasksSource
+        case mediaInMinimalView, tasksSource, checkForUpdates, lastUpdateCheck
     }
 
     /// Every key is optional, so a settings file written by an older Island (which had fewer keys) keeps the user's
@@ -63,6 +67,8 @@ public struct Settings: Codable, Equatable {
         ambientVolume = Self.clamp(try values.decodeIfPresent(Double.self, forKey: .ambientVolume) ?? ambientVolume, 0...1)
         mediaInMinimalView = try values.decodeIfPresent(Bool.self, forKey: .mediaInMinimalView) ?? mediaInMinimalView
         tasksSource = try values.decodeIfPresent(String.self, forKey: .tasksSource) ?? tasksSource
+        checkForUpdates = try values.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? checkForUpdates
+        lastUpdateCheck = try values.decodeIfPresent(Date.self, forKey: .lastUpdateCheck)
     }
 
     private static func clamp<T: Comparable>(_ value: T, _ range: ClosedRange<T>) -> T {

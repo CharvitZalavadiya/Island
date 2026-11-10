@@ -17,6 +17,10 @@ public struct LaunchOptions: Equatable {
     /// running Island (its keep-awake session, history or settings), so it may run beside it.
     public var supportDirectory: URL?
 
+    /// Looks for updates at this address (a GitHub-style "latest release" answer) instead of GitHub's, to try the updater.
+    public var updateFeedURL: URL?
+    /// Checks for an update at launch and installs it at once if there is one, to try the updater without the Settings window.
+    public var debugUpdateNow = false
     /// Behaves as if the screen had no notch (shows the artificial one), to check how Island looks on a Mac without one.
     public var simulateNoNotch = false
 
@@ -38,6 +42,14 @@ public struct LaunchOptions: Equatable {
                 options.debugAlert = true
             case "--simulate-no-notch":
                 options.simulateNoNotch = true
+            case "--debug-update-now":
+                options.debugUpdateNow = true
+            case "--update-feed":
+                let next = arguments.index(after: index)
+                if next < arguments.endIndex, !arguments[next].hasPrefix("--") {
+                    options.updateFeedURL = URL(string: arguments[next])
+                    index = next
+                }
             case "--debug-open":
                 let next = arguments.index(after: index)
                 if next < arguments.endIndex, !arguments[next].hasPrefix("--") {

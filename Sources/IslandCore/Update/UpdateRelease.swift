@@ -76,7 +76,7 @@ public enum UpdateNotes {
         for raw in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
             var line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("#") { line = line.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces) }
-            else if line.hasPrefix("- ") || line.hasPrefix("* ") { line = "• " + line.dropFirst(2) }
+            else if line.hasPrefix("- ") || line.hasPrefix("* ") { line = "• " + String(line.dropFirst(2)) }
             line = line.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
             lines.append(line)
         }

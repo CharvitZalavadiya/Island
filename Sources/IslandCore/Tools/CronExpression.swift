@@ -294,7 +294,7 @@ public struct CronExpression: Equatable, Sendable {
         case (.explicit(let list), .step(let from, let through, let every, let full)):
             let hourPart = every == 1 ? "every hour" : "every \(every) hours"
             let window = full ? "" : " from \(words.clock(from, 0)) through \(words.clock(through, 0))"
-            if list == [0] { return (hourPart.prefix(1).uppercased() + hourPart.dropFirst() + window, true) }
+            if list == [0] { return (hourPart.prefix(1).uppercased() + String(hourPart.dropFirst()) + window, true) }
             return ("At \(minuteList(list)) past \(hourPart)\(window)", true)
 
         case (.any, _), (.step, _):
@@ -362,7 +362,7 @@ public struct CronExpression: Equatable, Sendable {
         }
         // "Every 10 seconds" already covers "every minute"; anything narrower is added after it.
         if rest.text == "Every minute" { return lead }
-        return lead + ", " + rest.text.prefix(1).lowercased() + rest.text.dropFirst()
+        return lead + ", " + rest.text.prefix(1).lowercased() + String(rest.text.dropFirst())
     }
 
     /// "every day", "on Monday through Friday", "on day 1 and 15 of the month", "on day 13 of the month and on Friday".

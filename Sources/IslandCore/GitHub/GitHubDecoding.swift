@@ -381,7 +381,7 @@ public enum GitHubText {
         let words = last.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
             .split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
         guard let first = words.first else { return branch }
-        return first.uppercased() + words.dropFirst()
+        return first.uppercased() + String(words.dropFirst())
     }
 
     /// The first line of a commit message: what makes a good title.

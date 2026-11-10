@@ -7,7 +7,7 @@ public enum ScreenshotLocation {
         let raw = defaultsValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !raw.isEmpty else { return home.appendingPathComponent("Desktop") }
         if raw == "~" { return URL(fileURLWithPath: home.path) }
-        if raw.hasPrefix("~/") { return URL(fileURLWithPath: home.path + "/" + raw.dropFirst(2)) }
+        if raw.hasPrefix("~/") { return URL(fileURLWithPath: home.path + "/" + String(raw.dropFirst(2))) }
         if raw.hasPrefix("/") { return URL(fileURLWithPath: raw) }
         return URL(fileURLWithPath: home.path + "/" + raw)
     }

@@ -2,26 +2,33 @@
 
 ## The rule
 
-**A release is published when a change lands on `main` and the version in `Sources/IslandCore/Version.swift` is one that has
-not been released yet. Otherwise nothing is published.**
+**A release is published when a pull request is merged into `main` and the version in `Sources/IslandCore/Version.swift` is
+one that has not been released yet. Nothing else publishes a release: not a push to `dev`, not opening a pull request, not a
+push straight to `main`, and not running the workflow by hand on another branch.**
 
-So you can merge into `main` as many times as you like without releasing. When you want a release:
+So the flow is:
 
-1. Raise the version in `Sources/IslandCore/Version.swift` (`public let islandVersion = "1.2.0"`). That is the only place the
-   version lives: the built app is stamped from it.
-2. Add a `## 1.2.0` section to `CHANGELOG.md` saying what changed (it becomes the release notes).
-3. Merge that into `main`.
+1. **Build on `dev`** (or a branch off it). Pushes to `dev` and pull requests only run the tests (the *CI* workflow). They never
+   release, whatever the version says.
+2. **When you want a release**, raise the version in `Sources/IslandCore/Version.swift` (`public let islandVersion = "1.2.0"`).
+   That is the only place the version lives: the built app is stamped from it. Add a `## 1.2.0` section to `CHANGELOG.md`
+   saying what changed (it becomes the release notes). This can sit on `dev` for as long as you like: nothing happens.
+3. **Open a pull request from `dev` into `main`.** *CI* builds and tests it, and, if it raises the version, checks that the
+   changelog section exists.
+4. **Review and merge it.** The merge is what starts the release.
 
 The *Release* workflow (`.github/workflows/release.yml`) then builds **whatever is on `main` at that moment**, tags it
 `v1.2.0`, and publishes the release with the disk image, its checksum, your changelog section and the install guide.
-Merging again without changing the version publishes nothing (the tests still run), because `v1.2.0` already exists.
+Merging another pull request without changing the version publishes nothing (the tests still run), because `v1.2.0` already
+exists.
 
-What the workflow does, in order, on every push to `main`:
+What the workflow does, in order, when a change lands on `main` (it does nothing on any other branch):
 
 | Step | |
 | --- | --- |
 | Read the version | from `Sources/IslandCore/Version.swift`; must look like `1.2.3` |
 | Is it new? | `.github/scripts/release-decision.sh` compares it with the published releases and tags. Already released: stop here (green, nothing published). **Lower than one already released: fail** (the "latest" release must never go backwards). |
+| Did it come from a pull request? | `.github/scripts/release-source.sh` asks GitHub which pull request the commit on `main` belongs to. A **merged pull request into `main`**: go on. Pushed straight to `main`: stop here (green, nothing published, with a note saying so). GitHub cannot be asked: the run fails, and can be run again |
 | Test | `swift test` |
 | Release notes | `.github/scripts/release-notes.sh` takes the `## <version>` section of `CHANGELOG.md` and appends the install guide. **Fails if the section is missing**, so nothing is published without notes. |
 | Build | `scripts/release.sh`: a universal app (Apple Silicon and Intel), the disk image `Island-<version>.dmg`, its `.sha256` |
@@ -34,8 +41,11 @@ checks that `CHANGELOG.md` has notes for it, so a missing entry shows up before 
 
 ### Branches
 
-Work on `dev`, open a pull request into `main`, merge when the checks pass. In the repository settings it is worth turning on
-branch protection for `main` (require a pull request and the *CI* check).
+Work on `dev`, open a pull request into `main`, merge when the checks pass. The workflow itself only publishes for a merged
+pull request, so even a push straight to `main` never releases. To make the pull request the *only* way in, turn on branch
+protection for `main` (repository **Settings → Branches → Add rule**, branch name `main`): *Require a pull request before
+merging* and *Require status checks to pass* with the **test** check from *CI*. Requiring approvals is up to you; GitHub does
+not let you approve your own pull request, so with a single owner it only gets in the way.
 
 ### Doing it by hand
 

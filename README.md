@@ -99,7 +99,7 @@ scripts/build-app.sh        # build/Island.app (Apple Silicon only, quick)
 scripts/release.sh          # dist/Island-<version>.dmg, universal (Apple Silicon + Intel), with checks
 ```
 
-How releases are made (merging into `main` publishes one when the version in `Sources/IslandCore/Version.swift` is new) and
+How releases are made (build on `dev`; merging a pull request into `main` publishes one when the version in `Sources/IslandCore/Version.swift` is new) and
 how signing and notarizing work are in [docs/distribution.md](docs/distribution.md). To try how Island looks on
 a Mac without a notch, start the built app with `--simulate-no-notch`.
 

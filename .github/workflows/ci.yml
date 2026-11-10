@@ -1,4 +1,5 @@
-# Checks pull requests (and pushes to dev) so a change is tested before it can be merged into main.
+# Checks pull requests (and pushes to dev) so a change is tested before it can be merged into main. This workflow only tests: it
+# never releases (that is release.yml, and only when a pull request is merged into main).
 name: CI
 
 on:

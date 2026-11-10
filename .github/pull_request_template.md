@@ -4,7 +4,7 @@
 
 ## Releasing
 
-Merging into `main` publishes a release automatically **if the version is new**.
+Merging this pull request into `main` publishes a release automatically **if the version is new**. (Pushes to `dev` and opening a pull request never release.)
 
 - [ ] This does not need a release (the version in `Sources/IslandCore/Version.swift` is unchanged), **or**
 - [ ] I raised the version in `Sources/IslandCore/Version.swift` and added a `## <version>` section to `CHANGELOG.md` saying what changed.

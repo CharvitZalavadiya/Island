@@ -49,6 +49,10 @@ private final class LocalSite: @unchecked Sendable {
                 lines.first { $0.lowercased().hasPrefix(name.lowercased() + ":") }.map { String($0.dropFirst(name.count + 1)).trimmingCharacters(in: .whitespaces) } ?? ""
             }
             self.record(Request(path: path, userAgent: header("User-Agent"), cookie: header("Cookie")))
+            if path.split(separator: "?").first.map(String.init) == "/drop" {   // takes the request and hangs up, so the page can never be reached
+                connection.cancel()
+                return
+            }
 
             var status = "200 OK"
             var headers = "Content-Type: text/html; charset=utf-8\r\n"
@@ -288,7 +292,10 @@ private final class TestClock: @unchecked Sendable {
     #expect(browser.title == "Page A" && browser.message == nil)    // still on the page, and no "failed" message for a hand-over
 }
 
-@Test @MainActor func browserAPageThatCannotBeReachedSaysSoAndOtherKindsOfAddressAreRefused() async {
+@Test @MainActor func browserAPageThatCannotBeReachedSaysSoAndOtherKindsOfAddressAreRefused() async throws {
+    let site = LocalSite()
+    let port = try await site.start()
+    defer { site.stop() }
     let browser = makeBrowser()
     browser.start()
     browser.go("javascript:alert(1)")
@@ -296,7 +303,8 @@ private final class TestClock: @unchecked Sendable {
     browser.go("   ")
     #expect(!browser.hasPage)
 
-    browser.go("http://127.0.0.1:1/nothing-listens-here")
+    // A server that hangs up on the request (a closed port would do on most Macs, but some networks make that wait for ages).
+    browser.go("http://127.0.0.1:\(port)/drop")
     #expect(await browserEventually { browser.message?.contains("Couldn't open this page") == true })
 }
 

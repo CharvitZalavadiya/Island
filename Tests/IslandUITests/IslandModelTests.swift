@@ -29,13 +29,13 @@ private func makeModel() -> IslandModel {
 }
 
 @Test @MainActor func tabsAreInTheDefaultOrderWithCalendarLast() {
-    #expect(makeModel().orderedTabs == [.focus, .awake, .clipboard, .shelf, .stats, .camera, .calendar, .tasks, .base64, .tools, .github, .teams])
+    #expect(makeModel().orderedTabs == [.focus, .awake, .clipboard, .shelf, .stats, .camera, .calendar, .tasks, .base64, .tools, .github, .teams, .browser])
 }
 
 @Test @MainActor func theModelFollowsTheSavedOrder() {
     let model = makeModel()
     model.settings.update { $0.tabOrder = ["camera", "focus"] }
-    #expect(model.orderedTabs == [.camera, .focus, .awake, .clipboard, .shelf, .stats, .calendar, .tasks, .base64, .tools, .github, .teams])
+    #expect(model.orderedTabs == [.camera, .focus, .awake, .clipboard, .shelf, .stats, .calendar, .tasks, .base64, .tools, .github, .teams, .browser])
 }
 
 @Test @MainActor func aSavedOrderWithMissingTabsStillShowsEveryTab() {

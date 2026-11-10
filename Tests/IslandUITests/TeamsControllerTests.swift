@@ -444,7 +444,8 @@ private final class GitHubTokenBox: TokenStoring, @unchecked Sendable {
 
 @Test @MainActor func teamsTheTabIsInTheTabBarAfterGitHubAndEveryoneKeepsTheirOrder() {
     let model = makeModel()
-    #expect(model.orderedTabs.last == .teams && model.orderedTabs.count == IslandTab.allCases.count)
+    #expect(model.orderedTabs.contains(.teams) && model.orderedTabs.count == IslandTab.allCases.count)
+    #expect(model.orderedTabs.firstIndex(of: .github)! + 1 == model.orderedTabs.firstIndex(of: .teams)!)
     #expect(IslandTab.teams.title == "Teams")
     // Someone who saved their own order before Teams existed still gets the new tab (at the end).
     model.settings.update { $0.tabOrder = ["github", "focus"] }

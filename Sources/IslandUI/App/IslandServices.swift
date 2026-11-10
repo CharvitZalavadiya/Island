@@ -23,6 +23,7 @@ public final class IslandServices {
     let todoist: TodoistController
     let github: GitHubController
     let teams: TeamsController
+    let browser: BrowserController
     let settings: SettingsStore
     let ambient: AmbientPlayer
     let processTools: ProcessToolsController
@@ -79,6 +80,7 @@ public final class IslandServices {
         todoist = TodoistController()
         github = GitHubController()
         teams = TeamsController()
+        browser = BrowserController(store: FileStore(url: supportDirectory.appendingPathComponent("browser.json"), defaultValue: BrowserState()))
         settings = model.settings
         tasks = TasksController(
             store: TaskStore(store: FileStore(url: supportDirectory.appendingPathComponent("tasks.json"), defaultValue: [])))

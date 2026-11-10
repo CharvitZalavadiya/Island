@@ -6,14 +6,14 @@ struct TabBar: View {
     var openSettings: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             ForEach(model.orderedTabs, id: \.self) { tab in
                 Button {
                     model.selectedTab = tab
                 } label: {
                     TabIcon(tab: tab)
                         .foregroundStyle(model.selectedTab == tab ? tab.color : Color.white.opacity(0.75))
-                        .frame(width: 34, height: 26)
+                        .frame(width: 30, height: 26)
                         .background(model.selectedTab == tab ? tab.color.opacity(0.2) : Color.clear, in: Capsule())
                         .contentShape(Capsule())
                 }
@@ -22,6 +22,17 @@ struct TabBar: View {
                 .help(tab.title)
             }
             Spacer(minLength: 0)
+            Button {
+                model.isMax.toggle()
+            } label: {
+                Image(systemName: model.isMax ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    .foregroundStyle(model.isMax ? IslandTheme.accent : Color.white)
+                    .frame(width: 28, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusable(false)
+            .help(model.isMax ? "Back to the usual size" : "Max: open the island big, on most of the screen")
             Button {
                 model.isPinned.toggle()
             } label: {

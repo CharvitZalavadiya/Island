@@ -380,8 +380,12 @@ public final class IslandPanelController: NSObject {
                     notch: notch, screenFrame: screen.frame, leftWing: wings.left, rightWing: wings.right)
             }
         case .expanded:
-            frame = NotchGeometry.expandedFrame(
-                notch: notch, screenFrame: screen.frame, size: IslandMetrics.expandedSize)
+            // Max mode is most of the screen; the content is laid out at that size too (RootView reads it from the model).
+            let size = model.isMax
+                ? NotchGeometry.maxSize(screenFrame: screen.frame, minimum: IslandMetrics.expandedSize)
+                : IslandMetrics.expandedSize
+            if model.contentSize != size { model.contentSize = size }
+            frame = NotchGeometry.expandedFrame(notch: notch, screenFrame: screen.frame, size: size)
         }
         content.interceptsMouse = model.mode == .collapsed
         if panel.frame != frame {
@@ -397,6 +401,7 @@ public final class IslandPanelController: NSObject {
             _ = model.mode
             _ = model.settings.settings
             _ = model.isPinned
+            _ = model.isMax
         } onChange: { [weak self] in
             // `onChange` fires before the new value lands, so hop to the next main-actor turn.
             Task { @MainActor [weak self] in
@@ -410,14 +415,17 @@ public final class IslandPanelController: NSObject {
         let settings = model.settings.settings
         machine.hoverOpens = settings.hoverOpens
         machine.collapseDelay = settings.collapseDelay
-        if model.isPinned != machine.isPinned { apply(machine.setPinned(model.isPinned)) }
+        // Max mode keeps the island open exactly as a pin does (the pin icon itself is the person's own choice).
+        let keepOpen = model.isPinned || model.isMax
+        if keepOpen != machine.isPinned { apply(machine.setPinned(keepOpen)) }
         updateFrame()
     }
 
     // MARK: Swipe between tabs
 
     private func handleScroll(_ event: NSEvent) {
-        guard event.window === panel, model.mode == .expanded else { return }
+        // Sideways scrolling belongs to the page while the Browser tab is open.
+        guard event.window === panel, model.mode == .expanded, model.selectedTab != .browser else { return }
         if event.phase == .began {
             scrollAccumulator = 0
             scrollDidSwitch = false

@@ -12,7 +12,7 @@ enum IslandMetrics {
 /// The content for a tab.
 @MainActor
 @ViewBuilder
-func tabView(for tab: IslandTab, services: IslandServices) -> some View {
+func tabView(for tab: IslandTab, services: IslandServices, model: IslandModel) -> some View {
     switch tab {
     case .focus:
         FocusTab(services: services)
@@ -36,6 +36,8 @@ func tabView(for tab: IslandTab, services: IslandServices) -> some View {
         GitHubTab(controller: services.github)
     case .teams:
         TeamsTab(controller: services.teams)
+    case .browser:
+        BrowserTab(controller: services.browser, model: model)
     case .tools:
         ToolsTab(controller: services.tools, nowPlaying: services.nowPlaying)
     }
@@ -57,7 +59,7 @@ struct RootView: View {
             if expanded {
                 VStack(spacing: 10) {
                     TabBar(model: model, openSettings: { services.showSettings() })
-                    tabView(for: model.selectedTab, services: services)
+                    tabView(for: model.selectedTab, services: services, model: model)
                 }
                 .padding(.top, model.topInset + 6)
                 .padding(.horizontal, 18 + radii.top)
@@ -65,7 +67,7 @@ struct RootView: View {
                 // Laid out once at the final size, whatever size the window is at this moment, and revealed as the
                 // window grows. Letting SwiftUI re-flow a whole tab at every step of the growth is what made opening
                 // jerky; closing never had the problem because the small wings are cheap to lay out.
-                .frame(width: IslandMetrics.expandedSize.width, height: IslandMetrics.expandedSize.height, alignment: .top)
+                .frame(width: model.contentSize.width, height: model.contentSize.height, alignment: .top)
                 .transition(.opacity)
             } else if let banner {
                 // Clicks and hovering are handled by the panel (it catches the pointer while the island is closed).

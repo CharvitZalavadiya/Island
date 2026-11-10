@@ -38,6 +38,11 @@ public enum NotchGeometry {
         return CGRect(x: x, y: screenFrame.maxY - height, width: width, height: height)
     }
 
+    /// The island in Max mode: `fraction` of the screen each way, never smaller than the usual island (`minimum`).
+    public static func maxSize(screenFrame: CGRect, fraction: CGFloat = 0.8, minimum: CGSize) -> CGSize {
+        CGSize(width: max(screenFrame.width * fraction, minimum.width), height: max(screenFrame.height * fraction, minimum.height))
+    }
+
     /// The banner for an event alert: centered on the notch (or screen), flush with the top edge and kept on screen.
     public static func alertFrame(notch: CGRect?, screenFrame: CGRect, size: CGSize) -> CGRect {
         expandedFrame(notch: notch, screenFrame: screenFrame, size: size)

@@ -4,7 +4,7 @@ import Observation
 import IslandCore
 
 public enum IslandTab: String, CaseIterable, Hashable {
-    case focus, awake, clipboard, shelf, stats, camera, calendar, tasks, base64, tools, github, teams
+    case focus, awake, clipboard, shelf, stats, camera, calendar, tasks, base64, tools, github, teams, browser
 
     public var title: String {
         switch self {
@@ -20,6 +20,7 @@ public enum IslandTab: String, CaseIterable, Hashable {
         case .tools: "Tools"
         case .github: "GitHub"
         case .teams: "Teams"
+        case .browser: "Browser"
         }
     }
 
@@ -38,6 +39,7 @@ public enum IslandTab: String, CaseIterable, Hashable {
         case .tools: IslandTheme.tools
         case .github: IslandTheme.github
         case .teams: IslandTheme.teams
+        case .browser: IslandTheme.link
         }
     }
 
@@ -55,6 +57,7 @@ public enum IslandTab: String, CaseIterable, Hashable {
         case .tools: "wrench.and.screwdriver.fill"
         case .github: "arrow.triangle.pull"
         case .teams: "bubble.left.and.bubble.right.fill"
+        case .browser: "globe"
         }
     }
 }
@@ -72,6 +75,11 @@ public final class IslandModel {
     public var selectedTab: IslandTab = .focus
     /// While pinned the island stays open. Not remembered between launches, so Island never opens by surprise.
     public var isPinned = false
+    /// Max mode: the open island is as big as most of the screen, and stays open (like a pin) until it is made small again.
+    /// Not remembered between launches either.
+    public var isMax = false
+    /// The size the open island's content is laid out at: the usual size, or the Max size set by the panel controller.
+    public internal(set) var contentSize: CGSize = IslandMetrics.expandedSize
     public private(set) var activities: Set<LiveActivityKind> = []
     /// The event the island is announcing right now, if any.
     public private(set) var alert: EventAlert?

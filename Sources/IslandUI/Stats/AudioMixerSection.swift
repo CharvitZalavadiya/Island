@@ -70,7 +70,8 @@ private struct VolumeRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(width: 112, alignment: .leading)
-            VolumeSlider(value: value, tint: IslandTheme.volume, onChange: onChange)
+            Slider(value: Binding(get: { Double(value) }, set: { onChange(Float($0)) }), in: 0...1)
+                .tint(IslandTheme.volume)
             Text("\(Int((value * 100).rounded()))%")
                 .font(.system(size: 11, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.white.opacity(0.7))
@@ -88,34 +89,6 @@ private struct VolumeRow: View {
         case .file(let path):
             Image(nsImage: NSWorkspace.shared.icon(forFile: path)).resizable()
         }
-    }
-}
-
-/// A bar you drag along: the same look as the other bars in the Stats tab, with a small handle.
-private struct VolumeSlider: View {
-    let value: Float
-    let tint: Color
-    let onChange: (Float) -> Void
-
-    var body: some View {
-        GeometryReader { geometry in
-            let width = max(geometry.size.width, 1)
-            let position = width * CGFloat(min(max(value, 0), 1))
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.12)).frame(height: 6)
-                Capsule().fill(tint).frame(width: position, height: 6)
-                Circle().fill(Color.white).frame(width: 13, height: 13)
-                    .shadow(color: .black.opacity(0.4), radius: 1.5)
-                    .offset(x: min(max(position - 6.5, 0), width - 13))
-            }
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0).onChanged { drag in
-                    onChange(Float(min(max(drag.location.x / width, 0), 1)))
-                })
-        }
-        .frame(height: 22)
     }
 }
 

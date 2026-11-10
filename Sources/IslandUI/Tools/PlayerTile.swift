@@ -153,49 +153,32 @@ struct PlayerTile: View {
     }
 }
 
-/// The progress bar with the two times under it: how long it has played, and how long it is. Click or drag on the bar to
-/// move to that point (when the app allows it). While playing it moves once a second.
+/// The progress bar with the two times under it: how long it has played, and how long it is. It is the system slider: click
+/// or drag it to move to that point (when the app allows it, otherwise it just shows the progress). While playing it moves
+/// once a second.
 struct SeekBar: View {
     let track: NowPlayingTrack
     let tint: Color
     let onSeek: (TimeInterval) -> Void
 
-    /// Where the pointer is on the bar (0 to 1) while it is pressed.
+    /// Where the knob is (0 to 1) while it is being dragged; nil the rest of the time, when the bar follows the playing position.
     @State private var scrub: Double?
-    @State private var hovering = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let played = track.fraction(at: context.date) ?? 0
-            let shown = scrub ?? played
             VStack(spacing: 2) {
-                GeometryReader { geometry in
-                    let width = max(geometry.size.width, 1)
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.15)).frame(height: 5)
-                        Capsule().fill(tint).frame(width: width * shown, height: 5)
-                        if track.isSeekable, hovering || scrub != nil {
-                            Circle().fill(Color.white).frame(width: 11, height: 11)
-                                .offset(x: min(max(width * shown - 5.5, 0), width - 11))
-                        }
-                    }
-                    .frame(maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { drag in
-                                guard track.isSeekable else { return }
-                                scrub = min(max(drag.location.x / width, 0), 1)
-                            }
-                            .onEnded { drag in
-                                guard track.isSeekable, let duration = track.duration else { scrub = nil; return }
-                                let fraction = min(max(drag.location.x / width, 0), 1)
-                                onSeek(fraction * duration)
-                                scrub = nil
-                            })
-                    .onHover { hovering = $0 }
-                }
-                .frame(height: 18)
+                Slider(
+                    value: Binding(get: { scrub ?? played }, set: { scrub = $0 }),
+                    in: 0...1,
+                    onEditingChanged: { editing in
+                        // The seek happens when the knob is let go, so dragging does not make the sound jump about.
+                        guard !editing, let fraction = scrub else { return }
+                        if track.isSeekable, let duration = track.duration { onSeek(fraction * duration) }
+                        scrub = nil
+                    })
+                .tint(tint)
+                .disabled(!track.isSeekable)
                 HStack {
                     Text(NowPlayingFormat.clock(elapsedShown(at: context.date)))
                     Spacer()

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The system slider everywhere.** The volume bars in the Stats tab and the progress bar in the player were drawn by hand;
+  they are now the same macOS slider as the one in Settings, and the sound volume on the Focus tab is no longer forced to
+  its small size, so they all get the system's glass knob.
 - **Choose your tabs.** In Settings, each tab now has a switch: switch off the ones you do not use and they leave the island,
   switch them on again whenever you like (all are on to start with, and at least one stays on). The up and down buttons are
   gone: grab a row by its handle and drag it where you want it. A file dragged toward the notch only opens the island while

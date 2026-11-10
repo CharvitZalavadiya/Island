@@ -46,6 +46,16 @@ scripts/release.sh
 gh release create v1.2.0 dist/Island-1.2.0.dmg dist/Island-1.2.0.dmg.sha256 --title "Island 1.2.0" --notes-file <(.github/scripts/release-notes.sh 1.2.0)
 ```
 
+### Why the build stamps the SDK
+
+macOS decides whether an app gets the current look (Liquid Glass sliders, switches and buttons) or the old flat one from the
+SDK version written inside the app. A release build made by `swift build` on Xcode 27 is linked through LTO, and then the
+linker writes the app's *minimum* macOS version (14.2) in that place, so the app looked old-style on newer Macs. The GitHub
+build (Xcode 26.3) did not have the problem. `scripts/build-app.sh` therefore rewrites the SDK version with `vtool` to the one
+that was really used (`xcrun --show-sdk-version`) before signing; the minimum version stays 14.2, and nothing changes where
+it already matches. To check a build: `vtool -show-build build/Island.app/Contents/MacOS/Island | grep sdk` should show a
+number of 26 or more.
+
 ## How Island updates itself
 
 Settings → Updates asks `https://api.github.com/repos/CharvitZalavadiya/Island/releases/latest` (the newest published release,

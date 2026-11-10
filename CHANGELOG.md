@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **A new app icon.** A light glass square with the open island hanging from the top: six tiles for Tasks, GitHub, Teams,
+  Calendar, Player and Browser, and a progress bar. It replaces the dark square with the ghost.
 - **No more Keychain password prompts.** Opening the Tasks, GitHub or Teams tab could make macOS ask for your Mac password
   (and would have after every update). Island now keeps its tokens in files only your account can read, in its own data
   folder, and never touches the Keychain. *You will need to connect GitHub, Todoist and Teams once more.* The README says what

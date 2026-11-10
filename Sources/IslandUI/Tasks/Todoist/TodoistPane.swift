@@ -78,7 +78,7 @@ struct TodoistConnectCard: View {
 
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "lock.fill").font(.system(size: 9)).padding(.top, 2)
-                Text("The token stays in your Mac's Keychain and is only ever sent to Todoist. You can disconnect any time.")
+                Text("The token stays on this Mac, in a file only your account can read, and is only ever sent to Todoist. You can disconnect any time.")
                     .fixedSize(horizontal: false, vertical: true)
             }
             .font(.system(size: 10.5))
@@ -103,7 +103,7 @@ struct TodoistConnectCard: View {
         let pasted = token
         Task {
             await todoist.connect(token: pasted)
-            // Once it is kept in the Keychain Island has no use for a copy here.
+            // Once it is saved Island has no use for a copy here.
             if todoist.connection == .connected { token = "" }
         }
     }

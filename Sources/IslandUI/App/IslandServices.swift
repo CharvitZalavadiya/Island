@@ -86,9 +86,13 @@ public final class IslandServices {
         tools = ToolsController()
         nowPlaying = NowPlayingController()
         mediaMonitor = MediaActivityMonitor(player: nowPlaying, model: model)
-        todoist = TodoistController()
-        github = GitHubController()
-        teams = TeamsController()
+        // Logins and tokens: files in Island's own data folder, readable only by this user (see `FileTokenStore` for why not the
+        // Keychain). A copy started with its own data folder (`--support-dir`) therefore has its own, empty, set.
+        let secrets = supportDirectory.appendingPathComponent("secrets", isDirectory: true)
+        todoist = TodoistController(tokens: FileTokenStore(directory: secrets, service: "todoist"))
+        github = GitHubController(tokens: FileTokenStore(directory: secrets, service: "github"))
+        teams = TeamsController(
+            sessions: FileTokenStore(directory: secrets, service: "teams"), config: FileTokenStore(directory: secrets, service: "teams-app"))
         browser = BrowserController(
             store: FileStore(url: supportDirectory.appendingPathComponent("browser.json"), defaultValue: BrowserState()),
             adBlocker: BrowserAdBlocker())

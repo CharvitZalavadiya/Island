@@ -158,7 +158,7 @@ private struct Rig {
     #expect(r.config.value == nil)                   // nothing was remembered either
 }
 
-@Test @MainActor func teamsSigningInKeepsTheSessionInTheKeychainAndLoadsTheChats() async throws {
+@Test @MainActor func teamsSigningInKeepsTheSessionSavedAndLoadsTheChats() async throws {
     let r = rig(chats: [chat("a", "Squad")])
     await r.controller.start()
     r.controller.clientID = "  \(goodID.uppercased()) "
@@ -171,7 +171,7 @@ private struct Rig {
     #expect(r.controller.account?.displayName == "Charvit Z")
     #expect(r.controller.chats.map(\.id) == ["a"] && r.controller.chatsLoaded)
 
-    // The session is in the Keychain stand-in (and only there); the app's id is remembered too, as it holds no secret.
+    // The session is in the stand-in for the saved files (and only there); the app's id is remembered too, as it holds no secret.
     let saved = try JSONDecoder().decode(TeamsSession.self, from: Data(try #require(r.sessions.value).utf8))
     #expect(saved.accessToken == "AT1" && saved.refreshToken == "RT1" && saved.clientID == goodID)
     #expect(r.config.value?.contains(goodID) == true && r.config.value?.contains("AT1") == false)
@@ -179,7 +179,7 @@ private struct Rig {
 
 @Test @MainActor func teamsTheApplicationIdSurvivesALaunchButTheSessionIsReadOnlyWhenTheTabOpens() async {
     let r = rig()
-    #expect(r.controller.isReady == false && r.controller.connection == .disconnected)   // nothing read from the Keychain yet
+    #expect(r.controller.isReady == false && r.controller.connection == .disconnected)   // nothing read from the saved files yet
     r.config.value = #"{"clientID":"\#(goodID)","tenant":"contoso.com"}"#
     await r.controller.start()
     #expect(r.controller.isReady && r.controller.clientID == goodID && r.controller.tenant == "contoso.com")
@@ -208,13 +208,13 @@ private struct Rig {
     #expect(r.controller.connection == .disconnected && r.controller.message == nil && r.sessions.value == nil)
 }
 
-@Test @MainActor func teamsAKeychainThatRefusesTheSessionMeansNotConnected() async {
+@Test @MainActor func teamsASessionThatCannotBeSavedMeansNotConnected() async {
     let r = rig()
     r.sessions.failSaves = true
     r.controller.clientID = goodID
     await r.controller.signIn()
     #expect(r.controller.connection == .disconnected)
-    #expect(r.controller.message?.text.contains("Keychain") == true)
+    #expect(r.controller.message?.text.contains("couldn't save") == true)
 }
 
 // MARK: Staying signed in
@@ -248,7 +248,7 @@ private struct Rig {
     r.auth.refreshResult = .failure(TeamsError.unauthorized)
     await r.controller.start()
     #expect(r.controller.connection == .disconnected)
-    #expect(r.sessions.value == nil)                                  // the dead session is gone from the Keychain
+    #expect(r.sessions.value == nil)                                  // the dead session is gone from the saved files
     #expect(r.controller.message?.text.contains("Sign in again") == true)
     #expect(r.controller.clientID == goodID)
     #expect(r.controller.chats.isEmpty)
@@ -422,7 +422,7 @@ private final class GitHubTokenBox: TokenStoring, @unchecked Sendable {
 @Test @MainActor func teamsAPullRequestFromAMessageOpensItsReviewInTheGitHubTabEvenIfThatTabWasNeverOpened() async {
     let model = makeModel()
     model.selectedTab = .teams
-    // GitHub has a saved token but its tab was never opened this time, so nothing has read the Keychain yet.
+    // GitHub has a saved token but its tab was never opened this time, so nothing has read its saved token yet.
     let github = GitHubController(api: TeamsHub(), tokens: GitHubTokenBox("ghp_saved"), refreshInterval: 0)
     #expect(github.connection == .disconnected && github.reviewTarget == nil)
 

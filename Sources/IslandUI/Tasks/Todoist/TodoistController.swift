@@ -5,7 +5,7 @@ import IslandCore
 /// The Todoist side of the Tasks tab: the connection, and the person's own Todoist tasks.
 ///
 /// - Connecting takes a personal API token (pasted from Todoist's settings), checks it with Todoist, and keeps it in the
-///   Keychain. Nothing is read from the Keychain until the Todoist view is first opened.
+///   Island's secrets folder (see `FileTokenStore`). Nothing is read until the Todoist view is first opened.
 /// - The lists refresh when the view opens, once a minute while it is open, and after every change Island makes.
 /// - Ticking a task off shows at once and is sent to Todoist; if Todoist refuses, the tick is undone and a message says so.
 /// - A token Todoist stops accepting (revoked in Todoist's settings) is forgotten and the connect screen comes back.
@@ -68,7 +68,7 @@ final class TodoistController {
     static let completedLimit = 50
 
     init(
-        api: TodoistAPI = URLSessionTodoistAPI(), tokens: TokenStoring = KeychainTokenStore(forService: "todoist"),
+        api: TodoistAPI = URLSessionTodoistAPI(), tokens: TokenStoring,
         now: @escaping () -> Date = Date.init, refreshInterval: TimeInterval = 60, lingerSeconds: TimeInterval = 0.8
     ) {
         self.api = api
@@ -116,7 +116,7 @@ final class TodoistController {
             let projects = try await api.projects(token: candidate)
             guard tokens.save(candidate) else {
                 connection = .disconnected
-                message = Message(text: "Island couldn't save the token in your Keychain, so it didn't connect.", isError: true)
+                message = Message(text: "Island couldn't save the token on this Mac, so it didn't connect.", isError: true)
                 return
             }
             token = candidate

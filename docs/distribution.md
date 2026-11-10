@@ -77,6 +77,13 @@ ID certificate (below) and verifying that signature would be the next step.
 An ad-hoc signature also means macOS asks for Camera, Calendar and the other permissions again after each update, because the
 signature changes with every build. A Developer ID signature keeps them.
 
+**The same thing is why Island keeps its tokens in files, not the Keychain.** The Keychain only lets an app use an item without
+asking while the app has the same signature as the one that saved it; with an ad-hoc signature that is no longer true after
+every update, and macOS asks for the person's Mac password once per token. `FileTokenStore` (files with permissions 600 in a
+folder with permissions 700 under Island's data folder) asks nothing. Once releases are signed with a Developer ID certificate,
+`KeychainTokenStore` (kept in the code, unused) can be switched back on in `IslandServices`; a test fails if anything uses it
+before then.
+
 ### Getting the warning-free kind
 
 1. Join the Apple Developer Program and create a **Developer ID Application** certificate (Xcode → Settings → Accounts → Manage Certificates).

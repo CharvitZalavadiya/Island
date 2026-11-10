@@ -9,8 +9,87 @@ protocol TokenStoring: AnyObject {
     func delete()
 }
 
-/// A token in the Mac's Keychain, the place macOS keeps passwords. It never goes into a settings file, and the Keychain
-/// (not Island) is what guards it. Another app cannot read it without the person's permission.
+/// A secret kept in a file that only the signed-in user can read, in Island's own data folder (a folder with permissions 700
+/// holding files with permissions 600, which is how ssh, git and the GitHub CLI keep theirs).
+///
+/// Island does NOT use the Keychain, on purpose. macOS lets an app use a Keychain item without asking only while the app has
+/// the same code signature as the app that saved it. Island is signed without a paid Apple developer account ("ad-hoc"), and an
+/// ad-hoc signature is different in every build, so macOS would ask the person for their Mac password, once per saved token,
+/// after every update (and for anyone who ever ran a differently signed copy). Nobody should be asked that by a small app.
+/// A file survives updates and asks nothing. The cost is real and should be said plainly: any program running as the same
+/// user can read it, which is also true of a Keychain item once its owner has been allowed to; and it is not encrypted beyond
+/// what FileVault already does for the disk. With a paid Developer ID signature (stable across updates) `KeychainTokenStore`
+/// below becomes usable again and is the better place.
+final class FileTokenStore: TokenStoring {
+    private let directory: URL
+    private let file: URL
+
+    /// `service` names the secret ("github", "todoist", "teams"): each gets its own file in `directory`.
+    init(directory: URL, service: String) {
+        self.directory = directory
+        self.file = directory.appendingPathComponent(Self.fileName(for: service))
+    }
+
+    /// A name that cannot lead out of the folder, whatever it is given.
+    static func fileName(for service: String) -> String {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyz0123456789-_")
+        let cleaned = String(service.lowercased().map { allowed.contains($0) ? $0 : "-" })
+        return cleaned.isEmpty ? "secret" : cleaned
+    }
+
+    func load() -> String? {
+        let fileManager = FileManager.default
+        // Never read through a link someone put in its place.
+        guard let attributes = try? fileManager.attributesOfItem(atPath: file.path), attributes[.type] as? FileAttributeType == .typeRegular,
+              let data = try? Data(contentsOf: file), let text = String(data: data, encoding: .utf8), !text.isEmpty
+        else { return nil }
+        // A file that somehow became readable by others is closed up again.
+        if let mode = attributes[.posixPermissions] as? NSNumber, mode.intValue & 0o077 != 0 {
+            chmod(file.path, 0o600)
+        }
+        return text
+    }
+
+    func save(_ token: String) -> Bool {
+        guard prepareDirectory() else { return false }
+        let temporary = directory.appendingPathComponent(".tmp-\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: temporary.path, contents: Data(token.utf8), attributes: [.posixPermissions: 0o600]) else {
+            return false
+        }
+        chmod(temporary.path, 0o600)
+        // One atomic step that replaces what was there (a link included, without following it): there is never a moment with a
+        // half-written token, or with one that others can read.
+        guard rename(temporary.path, file.path) == 0 else {
+            try? FileManager.default.removeItem(at: temporary)
+            return false
+        }
+        return true
+    }
+
+    func delete() {
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    private func prepareDirectory() -> Bool {
+        let fileManager = FileManager.default
+        do {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        } catch {
+            return false
+        }
+        chmod(directory.path, 0o700)
+        // Secrets do not belong in a backup or on another Mac.
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var mutable = directory
+        try? mutable.setResourceValues(values)
+        return true
+    }
+}
+
+/// NOT USED by Island (see `FileTokenStore` for why): a token in the Mac's Keychain. It is kept for the day Island is signed with
+/// a stable Developer ID certificate, when the Keychain stops asking for a password after every update. A test makes sure
+/// nothing else uses it in the meantime.
 final class KeychainTokenStore: TokenStoring {
     private let service: String
     private let account: String

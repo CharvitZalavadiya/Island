@@ -7,7 +7,7 @@ import IslandCore
 /// messages, and lets a GitHub pull request in a message open in the GitHub tab to review it. Read only.
 ///
 /// - Signing in needs an app the person registered in their own Microsoft Entra (its Application ID is pasted once). The
-///   sign-in and refresh tokens are kept in the Keychain; nothing is read from it until the tab is first opened.
+///   sign-in and refresh tokens are kept in Island's secrets folder (see `FileTokenStore`); nothing is read until the tab is first opened.
 /// - A link in a message: a click opens a GitHub pull request in the GitHub tab (anything else in the browser); a
 ///   Command-click always opens the address in the app that handles it, such as the browser.
 @Observable
@@ -76,8 +76,8 @@ final class TeamsController {
 
     init(
         api: TeamsAPI = URLSessionTeamsAPI(), auth: TeamsAuthenticating = LoopbackTeamsAuth(),
-        sessions: TokenStoring = KeychainTokenStore(forService: "teams"),
-        config: TokenStoring = KeychainTokenStore(forService: "teams-app"),
+        sessions: TokenStoring,
+        config: TokenStoring,
         now: @escaping () -> Date = { Date() }, chatInterval: TimeInterval = 60, messageInterval: TimeInterval = 15,
         openBrowser: @escaping @Sendable (URL) -> Void = { url in DispatchQueue.main.async { _ = NSWorkspace.shared.open(url) } },
         openExternally: @escaping (URL) -> Void = { url in _ = NSWorkspace.shared.open(url) }
@@ -151,7 +151,7 @@ final class TeamsController {
             signInTask = nil
             guard persist(fresh) else {
                 connection = .disconnected
-                message = Message(text: "Island couldn't save the sign-in in your Keychain, so it didn't connect.", isError: true)
+                message = Message(text: "Island couldn't save the sign-in on this Mac, so it didn't connect.", isError: true)
                 return
             }
             session = fresh

@@ -125,7 +125,7 @@ struct GitHubConnectCard: View {
 
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "lock.fill").font(.system(size: 9)).padding(.top, 2)
-                Text("The token stays in your Mac's Keychain and is only ever sent to GitHub. If your repositories belong to an organization that uses single sign-on, authorize the token for it on GitHub's token page (Configure SSO).")
+                Text("The token stays on this Mac, in a file only your account can read, and is only ever sent to GitHub. If your repositories belong to an organization that uses single sign-on, authorize the token for it on GitHub's token page (Configure SSO).")
                     .fixedSize(horizontal: false, vertical: true)
             }
             .font(.system(size: 10.5))
@@ -148,7 +148,7 @@ struct GitHubConnectCard: View {
         let pasted = token
         Task {
             await controller.connect(token: pasted)
-            // Once it is kept in the Keychain Island has no use for a copy here.
+            // Once it is saved Island has no use for a copy here.
             if controller.connection == .connected { token = "" }
         }
     }

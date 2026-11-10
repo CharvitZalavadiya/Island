@@ -167,7 +167,7 @@ private func pull(_ number: Int, _ title: String, repo: String = "acme/app") -> 
 
 // MARK: Connecting
 
-@Test @MainActor func theKeychainIsNotReadUntilTheTabOpens() async {
+@Test @MainActor func theSavedTokenIsNotReadUntilTheTabOpens() async {
     let (controller, api, tokens, _) = make(tokens: FakeTokens(stored: "tok"))
     #expect(tokens.loads == 0 && controller.connection == .disconnected && api.calls.isEmpty)
     await controller.start()
@@ -212,7 +212,7 @@ private func pull(_ number: Int, _ title: String, repo: String = "acme/app") -> 
     #expect(controller.message?.action == .init(title: "Authorise in GitHub", url: url))
 }
 
-@Test @MainActor func connectingWithoutInternetOrKeychainAccessSaysSo() async {
+@Test @MainActor func gitHubConnectingWithoutInternetOrWhenTheTokenCannotBeSavedSaysSo() async {
     let offline = FakeGitHub()
     offline.failure = GitHubError.network("offline")
     let (first, _, _, _) = make(api: offline)
@@ -222,7 +222,7 @@ private func pull(_ number: Int, _ title: String, repo: String = "acme/app") -> 
     let (second, _, secondTokens, _) = make(tokens: FakeTokens())
     secondTokens.saveWorks = false
     await second.connect(token: "t")
-    #expect(second.connection == .disconnected && second.message?.text.contains("Keychain") == true)
+    #expect(second.connection == .disconnected && second.message?.text.contains("couldn't save") == true)
 
     let (third, thirdAPI, _, _) = make()
     await third.connect(token: "   ")

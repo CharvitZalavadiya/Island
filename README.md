@@ -66,7 +66,12 @@ Island asks only when you use a feature, and explains why:
   **Focus status** (the Focus indicator) · **Desktop folder** (new screenshots on the shelf).
 - **Keep awake with the lid closed** needs an administrator password once, to allow one `pmset` command. It is set up
   from Settings and can be removed there.
-- Tokens you paste in (GitHub, Todoist) and the Microsoft sign-in are kept in the **macOS Keychain**, never in a file.
+- Tokens you paste in (GitHub, Todoist) and the Microsoft sign-in are kept **on your Mac**, in Island's own folder
+  (`~/Library/Application Support/Island/secrets`), in files only your account can read (permissions 600), left out of
+  backups, and deleted when you disconnect. **Island does not use the Keychain**, on purpose: because the app is signed
+  without a paid Apple certificate, macOS would ask for your Mac password for each saved token after every update. The
+  trade-off is that any program running as you can read those files; use a token with only the permissions Island needs
+  (GitHub: `repo`), and disconnect when you are done.
 - There is **no analytics and no telemetry**. Island talks only to the services you connect (GitHub, Todoist, Microsoft),
   to the websites you open in its browser, to Apple for the speed test, and to GitHub to ask whether a newer version exists
   (about once a day; nothing about you or your Mac is sent; it can be switched off).

@@ -120,7 +120,7 @@ private func task(_ id: String, _ content: String, due: Double? = nil, priority:
 
 // MARK: Connecting
 
-@Test @MainActor func theKeychainIsNotReadUntilTheTodoistViewOpens() async {
+@Test @MainActor func theSavedTokenIsNotReadUntilTheTodoistViewOpens() async {
     let (controller, api, tokens) = make(tokens: FakeTokens(stored: "tok"))
     #expect(tokens.loads == 0 && controller.connection == .disconnected && api.calls.isEmpty)   // nothing at launch
     await controller.start()
@@ -166,7 +166,7 @@ private func task(_ id: String, _ content: String, due: Double? = nil, priority:
     #expect(controller.message?.isError == true && controller.message?.text.contains("didn't accept that token") == true)
 }
 
-@Test @MainActor func connectingWithoutInternetOrWithoutKeychainAccessSaysSo() async {
+@Test @MainActor func connectingWithoutInternetOrWhenTheTokenCannotBeSavedSaysSo() async {
     let offline = FakeAPI()
     offline.failure = TodoistError.network("offline")
     let (first, _, firstTokens) = make(api: offline)
@@ -176,7 +176,7 @@ private func task(_ id: String, _ content: String, due: Double? = nil, priority:
     let (second, _, secondTokens) = make(tokens: FakeTokens())
     secondTokens.saveWorks = false
     await second.connect(token: "t")
-    #expect(second.connection == .disconnected && second.message?.text.contains("Keychain") == true)
+    #expect(second.connection == .disconnected && second.message?.text.contains("couldn't save") == true)
 }
 
 @Test @MainActor func anEmptyPasteDoesNothing() async {

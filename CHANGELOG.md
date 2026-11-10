@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **No more Keychain password prompts.** Opening the Tasks, GitHub or Teams tab could make macOS ask for your Mac password
+  (and would have after every update). Island now keeps its tokens in files only your account can read, in its own data
+  folder, and never touches the Keychain. *You will need to connect GitHub, Todoist and Teams once more.* The README says what
+  this trades away.
+
 ## 1.1.0
 
 - **Updates from inside Island.** Settings has an *Updates* section: *Check for updates* looks on GitHub, shows what is new,

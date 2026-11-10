@@ -6,7 +6,7 @@ import IslandCore
 /// The GitHub tab: the connection, the form for a new pull request, and the person's own pull requests.
 ///
 /// - Connecting takes a personal access token (pasted from GitHub's settings), checks it with GitHub, and keeps it in the
-///   Keychain. Nothing is read from the Keychain until the tab is first opened.
+///   Island's secrets folder (see `FileTokenStore`). Nothing is read until the tab is first opened.
 /// - A new pull request: choose a repository (any the account can push to), a base branch (the default is offered) and the
 ///   branch to merge, and Island shows how many commits and files it carries, fills in a title, and the repository's
 ///   pull request template as the description. Creating it gives the link to copy.
@@ -136,7 +136,7 @@ final class GitHubController {
     @ObservationIgnored private var copiedGeneration = 0
 
     init(
-        api: GitHubAPI = URLSessionGitHubAPI(), tokens: TokenStoring = KeychainTokenStore(forService: "github"),
+        api: GitHubAPI = URLSessionGitHubAPI(), tokens: TokenStoring,
         now: @escaping () -> Date = Date.init, refreshInterval: TimeInterval = 120, copiedSeconds: TimeInterval = 1.5,
         confirmationSeconds: TimeInterval = 4,
         writeToClipboard: @escaping (String) -> Void = { text in
@@ -231,7 +231,7 @@ final class GitHubController {
             let who = try await api.account(token: candidate)
             guard tokens.save(candidate) else {
                 connection = .disconnected
-                message = Message(text: "Island couldn't save the token in your Keychain, so it didn't connect.", isError: true)
+                message = Message(text: "Island couldn't save the token on this Mac, so it didn't connect.", isError: true)
                 return
             }
             token = candidate

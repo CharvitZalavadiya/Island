@@ -16,7 +16,7 @@ public struct TeamsAccount: Equatable, Sendable {
     }
 }
 
-/// What the app keeps in the Keychain after a sign-in. The client id and tenant travel with it so a refresh needs nothing else.
+/// What the app keeps (in a file only the user can read) after a sign-in. The client id and tenant travel with it so a refresh needs nothing else.
 public struct TeamsSession: Codable, Equatable, Sendable {
     public var clientID: String
     public var tenant: String

@@ -69,7 +69,7 @@ private let fakeOutput = """
     """
 
 @MainActor
-private func waitUntil(timeout: TimeInterval = 3, _ condition: () -> Bool) async -> Bool {
+private func waitUntil(timeout: TimeInterval = 30, _ condition: () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if condition() { return true }

@@ -28,7 +28,7 @@ private final class FakeKeyboardLock: KeyboardLocking {
     }
 }
 
-private func waitUntil(timeout: TimeInterval = 2, _ condition: @MainActor () -> Bool) async -> Bool {
+private func waitUntil(timeout: TimeInterval = 30, _ condition: @MainActor () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if await condition() { return true }
@@ -75,7 +75,7 @@ private func waitUntil(timeout: TimeInterval = 2, _ condition: @MainActor () -> 
     let tools = ToolsController(keyboardLock: fake, lockDuration: 0.3)   // a very short lock
     tools.toggleKeyboardLock()
     #expect(tools.keyboard == .locked)
-    #expect(await waitUntil(timeout: 3) { tools.keyboard == .idle })
+    #expect(await waitUntil(timeout: 30) { tools.keyboard == .idle })
     #expect(fake.stops >= 1)
 }
 

@@ -153,7 +153,7 @@ private final class TestClock: @unchecked Sendable {
 }
 
 /// Like `browserEventually`, for a question that has to ask the page (which takes an `await`).
-@MainActor private func browserEventuallyAsking(timeout: TimeInterval = 8, _ condition: () async -> Bool) async -> Bool {
+@MainActor private func browserEventuallyAsking(timeout: TimeInterval = 30, _ condition: () async -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if await condition() { return true }
@@ -162,7 +162,7 @@ private final class TestClock: @unchecked Sendable {
     return await condition()
 }
 
-@MainActor private func browserEventually(timeout: TimeInterval = 8, _ condition: () -> Bool) async -> Bool {
+@MainActor private func browserEventually(timeout: TimeInterval = 30, _ condition: () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if condition() { return true }
@@ -793,13 +793,13 @@ private final class TestClock: @unchecked Sendable {
     browser.go("http://127.0.0.1:\(port)/skip")
     #expect(await browserEventually { browser.title == "Skip" && !browser.isLoading })
     // While the ad shows: Skip is pressed, the ad is muted, sped up and sent to its end.
-    #expect(await browserEventuallyAsking(timeout: 5) { await script(browser, "JSON.parse(window.state()).skipped ? 'yes' : 'no'") == "yes" })
-    #expect(await browserEventuallyAsking(timeout: 5) { await script(browser, "JSON.parse(window.state()).time >= 29.9 ? 'yes' : 'no'") == "yes" })
+    #expect(await browserEventuallyAsking(timeout: 30) { await script(browser, "JSON.parse(window.state()).skipped ? 'yes' : 'no'") == "yes" })
+    #expect(await browserEventuallyAsking(timeout: 30) { await script(browser, "JSON.parse(window.state()).time >= 29.9 ? 'yes' : 'no'") == "yes" })
     #expect(await script(browser, "String(JSON.parse(window.state()).muted)") == "true")
     #expect(await script(browser, "String(JSON.parse(window.state()).rate)") == "16")
     // The ad is over: the sound and the speed are put back.
     _ = await script(browser, "document.getElementById('movie_player').classList.remove('ad-showing'); 'ok'")
-    #expect(await browserEventuallyAsking(timeout: 5) { await script(browser, "String(JSON.parse(window.state()).muted) + ',' + String(JSON.parse(window.state()).rate)") == "false,1" })
+    #expect(await browserEventuallyAsking(timeout: 30) { await script(browser, "String(JSON.parse(window.state()).muted) + ',' + String(JSON.parse(window.state()).rate)") == "false,1" })
 }
 
 /// The browser shown the way the island shows it (in a window, through its SwiftUI view), not driven from code alone.

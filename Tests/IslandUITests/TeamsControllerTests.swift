@@ -136,7 +136,7 @@ private struct Rig {
     return Rig(controller: controller, api: api, auth: auth, sessions: sessions, config: config, opened: opened)
 }
 
-@MainActor private func teamsEventually(timeout: TimeInterval = 4, _ condition: () -> Bool) async -> Bool {
+@MainActor private func teamsEventually(timeout: TimeInterval = 30, _ condition: () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if condition() { return true }

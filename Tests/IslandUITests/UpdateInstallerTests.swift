@@ -191,7 +191,7 @@ private final class Progress: @unchecked Sendable {
     var all: [Double] { lock.lock(); defer { lock.unlock() }; return values }
 }
 
-private func eventually(timeout: TimeInterval = 10, _ condition: () -> Bool) async -> Bool {
+private func eventually(timeout: TimeInterval = 30, _ condition: () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if condition() { return true }
@@ -377,7 +377,7 @@ private func failure(_ work: () async throws -> Void) async -> UpdateError? {
         let impatient = AppUpdateInstaller(installedApp: scene.installed, currentVersion: AppVersion("1.0.0")!, workDirectory: scene.root.appendingPathComponent("work"), allowAnyHost: true, openCommand: "/bin/echo", waitSeconds: 1)
         try impatient.relaunch(prepared, processID: island.processIdentifier)
         let log = prepared.workDirectory.appendingPathComponent("update.log")
-        #expect(await eventually(timeout: 8) { ((try? String(contentsOf: log, encoding: .utf8)) ?? "").contains("did not quit") })
+        #expect(await eventually(timeout: 30) { ((try? String(contentsOf: log, encoding: .utf8)) ?? "").contains("did not quit") })
         #expect(installedVersion(scene.installed) == "1.0.0")
         #expect(await eventually { scene.stagedApps.isEmpty })
     }

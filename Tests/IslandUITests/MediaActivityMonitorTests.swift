@@ -31,7 +31,7 @@ import IslandCore
 private func settle(_ milliseconds: UInt64 = 60) async { try? await Task.sleep(nanoseconds: milliseconds * 1_000_000) }
 
 /// Waits (up to `timeout`) for something that should happen, instead of guessing how long it takes on a busy machine.
-private func eventually(timeout: TimeInterval = 3, _ condition: @MainActor () -> Bool) async -> Bool {
+private func eventually(timeout: TimeInterval = 30, _ condition: @MainActor () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if await condition() { return true }

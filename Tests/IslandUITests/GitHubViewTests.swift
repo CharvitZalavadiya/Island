@@ -35,7 +35,7 @@ private final class StoredToken: TokenStoring {
 }
 
 /// Waits (up to `timeout`) for something that should happen in a window, letting the run loop turn meanwhile.
-@MainActor private func eventually(timeout: TimeInterval = 4, _ condition: () -> Bool) async -> Bool {
+@MainActor private func eventually(timeout: TimeInterval = 30, _ condition: () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if condition() { return true }

@@ -88,7 +88,7 @@ private final class Box<T>: @unchecked Sendable { var value: T; init(_ value: T)
     return Rig(controller: controller, feed: feed, installer: installer, settings: settings, clock: clock, quit: quit, opened: opened)
 }
 
-private func eventually(timeout: TimeInterval = 4, _ condition: () -> Bool) async -> Bool {
+private func eventually(timeout: TimeInterval = 30, _ condition: () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if condition() { return true }

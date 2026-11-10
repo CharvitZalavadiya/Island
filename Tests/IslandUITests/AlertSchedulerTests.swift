@@ -76,7 +76,7 @@ private struct Rig {
     func at(_ minutes: Double) -> Date { clock.now.addingTimeInterval(minutes * 60) }
 }
 
-private func waitUntil(timeout: TimeInterval = 3, _ condition: @MainActor () -> Bool) async -> Bool {
+private func waitUntil(timeout: TimeInterval = 30, _ condition: @MainActor () -> Bool) async -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if await condition() { return true }

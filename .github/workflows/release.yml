@@ -1,9 +1,13 @@
-# Runs on every change that lands on main (a merged pull request, or a push), and publishes a release ONLY when the version
-# in Sources/IslandCore/Version.swift is one that has not been released yet.
+# Publishes a release when a pull request is merged into main AND the version in Sources/IslandCore/Version.swift is one
+# that has not been released yet. Nothing else releases: not a push to dev, not opening a pull request, not a push straight
+# to main, and not running this by hand on another branch.
 #
-#   - Merge as many times as you like without touching the version: the tests run and nothing is published.
-#   - When you want a release, raise the version in Sources/IslandCore/Version.swift (and add a "## <version>" section to
-#     CHANGELOG.md). The merge that carries it builds whatever is on main at that moment and publishes it as that version.
+#   - Build on dev. Raise the version in Sources/IslandCore/Version.swift (and add a "## <version>" section to CHANGELOG.md)
+#     whenever you like: it only counts once it is on main.
+#   - Open a pull request from dev into main. The CI workflow tests it; nothing is released.
+#   - Merge it. The merge is a push to main, this workflow starts, sees a new version that arrived through a merged pull
+#     request, builds whatever is on main at that moment and publishes it as that version.
+#   - Merge again without raising the version, and the tests run and nothing is published.
 #
 # The release is made as a draft first and published only when everything has been uploaded, so a failed run never leaves
 # a half-made release for anyone (or for Island's own updater) to find.
@@ -16,6 +20,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read   # to see which pull request a commit on main came from
 
 concurrency:
   group: release
@@ -23,6 +28,8 @@ concurrency:
 
 jobs:
   release:
+    # Running this by hand on another branch (the Run workflow button) must never publish that branch.
+    if: github.ref == 'refs/heads/main'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -62,11 +69,22 @@ jobs:
           echo "Already released: $(echo $released | tr '\n' ' ')"
           decision="$(.github/scripts/release-decision.sh "$VERSION" $released)"
           echo "Version in the file: $VERSION, so: $decision"
-          if [ "$decision" = "release" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ "$decision" != "release" ]; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Version $VERSION is already released, so nothing is published. To release, raise the version in Sources/IslandCore/Version.swift."
+          else
+            # A new version is released only when it reached main through a merged pull request, not by a push straight to main.
+            how="$(.github/scripts/release-source.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA")"
+            echo "This change reached main as: $how"
+            case "$how" in
+              pull-request*)
+                echo "publish=true" >> "$GITHUB_OUTPUT"
+                ;;
+              *)
+                echo "publish=false" >> "$GITHUB_OUTPUT"
+                echo "::notice::Version $VERSION is new, but this change was pushed to main directly instead of being merged from a pull request, so nothing is published. Open a pull request from dev into main and merge it."
+                ;;
+            esac
           fi
 
       - name: Test

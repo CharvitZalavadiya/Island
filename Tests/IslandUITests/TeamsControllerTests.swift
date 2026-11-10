@@ -442,6 +442,29 @@ private final class GitHubTokenBox: TokenStoring, @unchecked Sendable {
     #expect(model.selectedTab == .github && github.isReady && github.connection == .disconnected && github.reviewTarget == nil)
 }
 
+@Test @MainActor func teamsWithTheGitHubTabSwitchedOffAPullRequestOpensInTheBrowserInsteadAndGitHubIsLeftAlone() async {
+    let model = makeModel()
+    model.settings.update { $0.hiddenTabs = ["github"] }
+    model.selectedTab = .teams
+    let github = GitHubController(api: TeamsHub(), tokens: GitHubTokenBox("ghp_saved"), refreshInterval: 0)
+    var opened: [URL] = []
+
+    await IslandServices.openPullRequestInGitHubTab("https://github.com/acme/finance/pull/757", model: model, github: github) { opened.append($0) }
+
+    #expect(opened == [URL(string: "https://github.com/acme/finance/pull/757")!])
+    #expect(model.selectedTab == .teams)
+    #expect(github.connection == .disconnected && github.reviewTarget == nil)   // not even started: its tab is off
+}
+
+@Test @MainActor func teamsWithTheGitHubTabOnNothingIsOpenedInTheBrowser() async {
+    let model = makeModel()
+    model.selectedTab = .teams
+    let github = GitHubController(api: TeamsHub(), tokens: GitHubTokenBox(nil), refreshInterval: 0)
+    var opened: [URL] = []
+    await IslandServices.openPullRequestInGitHubTab("https://github.com/acme/finance/pull/757", model: model, github: github) { opened.append($0) }
+    #expect(opened.isEmpty && model.selectedTab == .github)
+}
+
 @Test @MainActor func teamsTheTabIsInTheTabBarAfterGitHubAndEveryoneKeepsTheirOrder() {
     let model = makeModel()
     #expect(model.orderedTabs.contains(.teams) && model.orderedTabs.count == IslandTab.allCases.count)

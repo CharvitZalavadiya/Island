@@ -78,24 +78,52 @@ private func largestImage() throws -> CGImage {
     #expect(pixel(image, x: 512, y: 700).a == 255)
 }
 
-@Test func theNotchPillIsCyanAndHangsFromTheTopEdge() throws {
+@Test func theOpenIslandHangsFromTheTopEdgeAndIsNearBlack() throws {
     let image = try largestImage()
-    // Just under the top edge of the rounded square, in the middle: the pill.
-    let top = pixel(image, x: 512, y: 130)
-    #expect(top.a == 255)
-    #expect(top.b > 180 && top.g > 150 && top.r < 90, "expected cyan, got \(top)")
-    // Beside the pill the square is near-black.
-    let beside = pixel(image, x: 250, y: 130)
-    #expect(beside.r < 40 && beside.g < 40 && beside.b < 40, "expected near-black, got \(beside)")
+    // Just under the top edge of the rounded square: the dark panel, in the middle and near its left side.
+    for (x, y) in [(512, 125), (250, 130)] {
+        let top = pixel(image, x: x, y: y)
+        #expect(top.a == 255)
+        #expect(top.r < 40 && top.g < 40 && top.b < 40, "expected near-black at \(x),\(y), got \(top)")
+    }
+    // Beside the panel, and below it, the square is light glass.
+    for (x, y) in [(150, 450), (512, 760)] {
+        let glass = pixel(image, x: x, y: y)
+        #expect(glass.a == 255)
+        #expect(glass.r > 200 && glass.g > 205 && glass.b > 210, "expected light glass at \(x),\(y), got \(glass)")
+    }
 }
 
-@Test func theMascotIsWhiteAndItsEyesAreDark() throws {
+@Test func theSixFeatureTilesAreBlueVioletAndOrange() throws {
     let image = try largestImage()
-    // Body centre of the mascot (below the eyes) is white; its left eye is dark.
-    let body = pixel(image, x: 512, y: 700)
-    #expect(body.r > 235 && body.g > 235 && body.b > 235, "expected white, got \(body)")
-    let eye = pixel(image, x: 440, y: 550)
-    #expect(eye.r < 60 && eye.g < 60 && eye.b < 60, "expected a dark eye, got \(eye)")
+    // A point just inside the top-left corner of each tile, clear of the symbol in the middle.
+    let blue = [(308, 240), (468, 400)]
+    let violet = [(468, 240), (628, 400)]
+    let orange = [(628, 240), (308, 400)]
+    for (x, y) in blue {
+        let p = pixel(image, x: x, y: y)
+        #expect(p.r < 40 && p.g > 100 && p.g < 165 && p.b > 230, "expected blue at \(x),\(y), got \(p)")
+    }
+    for (x, y) in violet {
+        let p = pixel(image, x: x, y: y)
+        #expect(p.r > 165 && p.r < 215 && p.g > 60 && p.g < 125 && p.b > 220, "expected violet at \(x),\(y), got \(p)")
+    }
+    for (x, y) in orange {
+        let p = pixel(image, x: x, y: y)
+        #expect(p.r > 235 && p.g > 130 && p.g < 190 && p.b < 50, "expected orange at \(x),\(y), got \(p)")
+    }
+}
+
+@Test func theSymbolsAreInkAndTheProgressBarIsBlue() throws {
+    let image = try largestImage()
+    // The play triangle's middle is dark ink on its blue tile.
+    let play = pixel(image, x: 505, y: 444)
+    #expect(play.r < 40 && play.g < 40 && play.b < 40, "expected ink, got \(play)")
+    // The filled part of the progress bar is blue; the rest of the track is not.
+    let filled = pixel(image, x: 400, y: 569)
+    #expect(filled.b > 230 && filled.r < 40, "expected blue, got \(filled)")
+    let empty = pixel(image, x: 600, y: 569)
+    #expect(empty.b - empty.r < 30, "expected the grey track, got \(empty)")
 }
 
 @Test func infoPlistNamesTheIcon() throws {

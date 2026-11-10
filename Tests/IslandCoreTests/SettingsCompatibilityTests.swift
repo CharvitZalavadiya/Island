@@ -67,8 +67,22 @@ private let version1File = """
     let store = FileStore(url: url, defaultValue: Settings())
     var settings = Settings()
     settings.tabOrder = ["camera", "focus"]
+    settings.hiddenTabs = ["teams", "base64"]
     settings.cameraMirrored = false
     settings.focusMinutes = 45
     try store.save(settings)
     #expect(store.load() == settings)
 }
+
+@Test func everyTabIsOnByDefaultAndAnOldSettingsFileHasNoSwitchedOffTabs() throws {
+    #expect(Settings().hiddenTabs.isEmpty)
+    let (settings, _) = try loadSettings(fromJSON: #"{"tabOrder":["camera"],"focusMinutes":40}"#)
+    #expect(settings.hiddenTabs.isEmpty)
+    #expect(settings.tabOrder == ["camera"] && settings.focusMinutes == 40)
+}
+
+@Test func theSwitchedOffTabsAreReadFromTheFile() throws {
+    let (settings, _) = try loadSettings(fromJSON: #"{"hiddenTabs":["teams","camera"]}"#)
+    #expect(settings.hiddenTabs == ["teams", "camera"])
+}
+

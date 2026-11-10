@@ -6,11 +6,16 @@ import Testing
 private let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
 @discardableResult
-private func runScript(_ path: String, _ arguments: [String], in directory: URL = repoRoot) -> (status: Int32, output: String, error: String) {
+private func runScript(
+    _ path: String, _ arguments: [String], in directory: URL = repoRoot, environment: [String: String] = [:]
+) -> (status: Int32, output: String, error: String) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/bash")
     process.arguments = [path] + arguments
     process.currentDirectoryURL = directory
+    if !environment.isEmpty {
+        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
+    }
     let out = Pipe(), err = Pipe()
     process.standardOutput = out
     process.standardError = err
@@ -130,3 +135,103 @@ private let sampleChangelog = """
     let result = runScript(".github/scripts/release-notes.sh", [version])
     #expect(result.status == 0, "CHANGELOG.md needs a '## \(version)' section: \(result.error)")
 }
+
+// MARK: Only a merged pull request into main releases
+
+/// A stand-in for the `gh` command that answers `gh api <path>` from files, so the script can be tried without GitHub.
+/// `answers[i]` is what the (i + 1)th question gets (the last one repeats); `fails` makes every question fail.
+private func askingTheSource(_ answers: [String], fails: Bool = false, tries: Int = 3) throws
+    -> (status: Int32, output: String, error: String, questions: Int)
+{
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("fake-gh-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    for (index, answer) in answers.enumerated() {
+        try answer.write(to: folder.appendingPathComponent("answer-\(index + 1).json"), atomically: true, encoding: .utf8)
+    }
+    let log = folder.appendingPathComponent("questions.log")
+    let gh = """
+    #!/bin/bash
+    echo "$@" >> "\(log.path)"
+    if [ "\(fails ? 1 : 0)" = "1" ]; then echo "gh: HTTP 500" >&2; exit 1; fi
+    n=$(wc -l < "\(log.path)" | tr -d ' ')
+    file="\(folder.path)/answer-$n.json"
+    [ -f "$file" ] || file="\(folder.path)/answer-\(answers.count).json"
+    cat "$file"
+    """
+    let ghURL = folder.appendingPathComponent("gh")
+    try gh.write(to: ghURL, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ghURL.path)
+
+    let result = runScript(
+        ".github/scripts/release-source.sh", ["owner/island", "abc123"],
+        environment: [
+            "PATH": folder.path + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"),
+            "RELEASE_SOURCE_TRIES": String(tries), "RELEASE_SOURCE_WAIT": "0",
+        ])
+    let questions = ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").count
+    return (result.status, result.output, result.error, questions)
+}
+
+private let none = "[]"
+private let mergedIntoMain = #"[{"number":8,"merged_at":null,"base":{"ref":"main"}},{"number":7,"merged_at":"2026-11-10T12:00:00Z","base":{"ref":"main"}}]"#
+private let mergedIntoDev = #"[{"number":5,"merged_at":"2026-11-10T12:00:00Z","base":{"ref":"dev"}}]"#
+private let stillOpen = #"[{"number":9,"merged_at":null,"base":{"ref":"main"}}]"#
+
+@Test func aCommitThatCameInThroughAMergedPullRequestIntoMainMayRelease() throws {
+    let result = try askingTheSource([mergedIntoMain])
+    #expect(result.status == 0 && result.output == "pull-request 7")        // the open one (#8) is not the one that was merged
+    #expect(result.questions == 1)                                           // found at once: not asked again
+}
+
+@Test func aCommitWithNoPullRequestIsADirectPushAndNeverReleasesButIsAskedAboutAFewTimesFirst() throws {
+    let result = try askingTheSource([none], tries: 3)
+    #expect(result.status == 0 && result.output == "direct-push")
+    #expect(result.questions == 3)
+}
+
+@Test func aPullRequestThatIsOnlyOpenOrWasMergedIntoAnotherBranchDoesNotCount() throws {
+    #expect(try askingTheSource([stillOpen]).output == "direct-push")
+    #expect(try askingTheSource([mergedIntoDev]).output == "direct-push")    // dev is not main
+}
+
+@Test func aPullRequestGitHubLinksALittleLateIsStillFound() throws {
+    let result = try askingTheSource([none, none, mergedIntoMain], tries: 5)
+    #expect(result.output == "pull-request 7" && result.questions == 3)
+}
+
+@Test func ifGitHubCannotBeAskedTheRunFailsInsteadOfGuessing() throws {
+    let result = try askingTheSource([none], fails: true, tries: 2)
+    #expect(result.status == 2)
+    #expect(result.output.isEmpty, "it must not say direct-push when it does not know")
+    #expect(result.error.contains("could not ask GitHub"))
+    #expect(result.questions == 2)
+}
+
+@Test func theSourceScriptNeedsTheRepositoryAndTheCommit() {
+    #expect(runScript(".github/scripts/release-source.sh", []).status == 64)
+    #expect(runScript(".github/scripts/release-source.sh", ["owner/island"]).status == 64)
+}
+
+@Test func onlyTheReleaseWorkflowCanPublishAndOnlyFromMainAfterAMergedPullRequest() throws {
+    let release = try String(contentsOf: repoRoot.appendingPathComponent(".github/workflows/release.yml"), encoding: .utf8)
+    let ci = try String(contentsOf: repoRoot.appendingPathComponent(".github/workflows/ci.yml"), encoding: .utf8)
+
+    // It starts on pushes to main only (a merge is one), plus the manual button, which does nothing on any other branch.
+    let triggerStart = try #require(release.range(of: "\non:\n"))
+    let triggerEnd = try #require(release.range(of: "\npermissions:"))
+    let triggers = String(release[triggerStart.upperBound..<triggerEnd.lowerBound])
+    #expect(triggers.contains("branches: [main]") && !triggers.contains("dev"))
+    #expect(release.contains("if: github.ref == 'refs/heads/main'"))
+
+    // A new version is released only after asking where the change came from, before anything is built or published.
+    let asks = try #require(release.range(of: "release-source.sh"))
+    let builds = try #require(release.range(of: "scripts/release.sh"))
+    let publishes = try #require(release.range(of: "gh release create"))
+    #expect(asks.lowerBound < builds.lowerBound && builds.lowerBound < publishes.lowerBound)
+    #expect(release.contains("pull-requests: read"))
+
+    // The CI workflow (dev pushes, pull requests) can test and check notes but cannot publish anything.
+    #expect(!ci.contains("gh release create") && !ci.contains("gh release edit") && !ci.contains("contents: write"))
+}
+

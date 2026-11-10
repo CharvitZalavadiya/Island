@@ -35,7 +35,7 @@ gear menu says when an update is waiting. Versions before 1.1.0 cannot update th
 ## Using it
 
 - **Open it** by pointing at the notch or clicking it; it closes when the pointer leaves. The **pin** keeps it open.
-- **Switch tabs** with the icons along the top, or swipe sideways. Tabs can be reordered in Settings (right-click the island).
+- **Switch tabs** with the icons along the top, or swipe sideways. In Settings (right-click the island) you can drag tabs into the order you like, and switch off the ones you do not want; they come back when you switch them on again.
 - **Max** (the arrows button) opens it big, on most of the screen; handy for the browser.
 - While it is closed, small **wings** beside the notch show what is live: the timer, keep-awake, music playing, a Focus mode.
 
@@ -99,7 +99,7 @@ scripts/build-app.sh        # build/Island.app (Apple Silicon only, quick)
 scripts/release.sh          # dist/Island-<version>.dmg, universal (Apple Silicon + Intel), with checks
 ```
 
-How releases are made (merging into `main` publishes one when the version in `Sources/IslandCore/Version.swift` is new) and
+How releases are made (build on `dev`; merging a pull request into `main` publishes one when the version in `Sources/IslandCore/Version.swift` is new) and
 how signing and notarizing work are in [docs/distribution.md](docs/distribution.md). To try how Island looks on
 a Mac without a notch, start the built app with `--simulate-no-notch`.
 

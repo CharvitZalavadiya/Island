@@ -72,7 +72,16 @@ public enum LiveActivityKind: Hashable, CaseIterable {
 @MainActor
 public final class IslandModel {
     public var mode: IslandMode = .collapsed
-    public var selectedTab: IslandTab = .focus
+    /// The tab the island shows. Asking for a tab that is switched off in Settings gives the first tab that is on instead, so
+    /// the island never shows a tab the user took out (and returns to the asked-for one if it is switched on again).
+    public var selectedTab: IslandTab {
+        get {
+            let tabs = orderedTabs
+            return tabs.contains(requestedTab) ? requestedTab : (tabs.first ?? .focus)
+        }
+        set { requestedTab = newValue }
+    }
+    private var requestedTab: IslandTab = .focus
     /// While pinned the island stays open. Not remembered between launches, so Island never opens by surprise.
     public var isPinned = false
     /// Max mode: the open island is as big as most of the screen. It closes by itself like any open island (pin it to keep it
@@ -108,16 +117,29 @@ public final class IslandModel {
         }
     }
 
-    /// The tabs in the order the user chose (see `TabOrder`): the tab bar and the swipe both follow it.
-    public var orderedTabs: [IslandTab] {
+    /// Every tab in the order the user chose (see `TabOrder`), switched off or not: Settings lists these.
+    public var allTabsInOrder: [IslandTab] {
         TabOrder.normalized(saved: settings.settings.tabOrder, all: IslandTab.allCases.map(\.rawValue))
             .compactMap(IslandTab.init(rawValue:))
     }
 
+    /// The tabs the island shows: the user's order without the tabs switched off in Settings (never empty). The tab bar and
+    /// the swipe both follow it.
+    public var orderedTabs: [IslandTab] {
+        TabOrder.shown(allTabsInOrder.map(\.rawValue), hidden: settings.settings.hiddenTabs)
+            .compactMap(IslandTab.init(rawValue:))
+    }
+
+    /// Whether the island shows this tab (it is not switched off in Settings).
+    public func isShown(_ tab: IslandTab) -> Bool { orderedTabs.contains(tab) }
+
+    /// Files dropped on the island go to the Shelf, so with the Shelf tab switched off the island does not open for them.
+    public var acceptsFileDrops: Bool { isShown(.shelf) }
+
     /// Files are being dragged toward the island: it shows the Shelf, whatever tab was open (even when it is already
     /// open or pinned), so they can be dropped straight onto it.
     public func fileDragEntered() {
-        selectedTab = .shelf
+        if acceptsFileDrops { selectedTab = .shelf }
     }
 
     /// Moves `offset` tabs along the user's order, stopping at the first and last tab.

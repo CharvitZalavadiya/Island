@@ -1,7 +1,8 @@
 import SwiftUI
 import IslandCore
 
-/// Play and pause for a background sound, a menu to pick which one, and a volume slider.
+/// Play and pause for a background sound, a menu to pick which one, and a volume slider (the system slider, at its
+/// normal size: its small sizes lose the larger glass knob).
 struct AmbientControls: View {
     @Bindable var player: AmbientPlayer
 
@@ -48,7 +49,6 @@ struct AmbientControls: View {
                 Image(systemName: "speaker.fill").font(.system(size: 10)).foregroundStyle(.white.opacity(0.55))
                 Slider(value: Binding(get: { player.volume }, set: { player.setVolume($0) }), in: 0...1)
                     .tint(tint)
-                    .controlSize(.small)
                 Image(systemName: "speaker.wave.3.fill").font(.system(size: 10)).foregroundStyle(.white.opacity(0.55))
             }
         }

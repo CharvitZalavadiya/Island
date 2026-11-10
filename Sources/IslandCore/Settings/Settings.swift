@@ -13,6 +13,9 @@ public struct Settings: Codable, Equatable {
     public var launchAtLogin = false
     /// Tab ids in the user's order. Empty means the default order; ids that are missing or unknown are tolerated.
     public var tabOrder: [String] = []
+    /// Ids of the tabs switched off in Settings: the island does not show them. Empty means every tab is on, and a tab that is
+    /// not mentioned here is on, so a tab added by a later version appears by itself.
+    public var hiddenTabs: [String] = []
     public var cameraMirrored = true
     /// Island makes a short sound when the Mac locks (or the screen saver starts) and when it unlocks.
     public var lockSounds = true
@@ -37,7 +40,7 @@ public struct Settings: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case hoverOpens, collapseDelay, mascotID, shuffleMascots, focusMinutes, shortBreakMinutes, longBreakMinutes
-        case longBreakEvery, autoChain, launchAtLogin, tabOrder, cameraMirrored, lockSounds, ambientSound, ambientVolume
+        case longBreakEvery, autoChain, launchAtLogin, tabOrder, hiddenTabs, cameraMirrored, lockSounds, ambientSound, ambientVolume
         case mediaInMinimalView, tasksSource, checkForUpdates, lastUpdateCheck
     }
 
@@ -61,6 +64,7 @@ public struct Settings: Codable, Equatable {
         autoChain = try values.decodeIfPresent(Bool.self, forKey: .autoChain) ?? autoChain
         launchAtLogin = try values.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? launchAtLogin
         tabOrder = try values.decodeIfPresent([String].self, forKey: .tabOrder) ?? tabOrder
+        hiddenTabs = try values.decodeIfPresent([String].self, forKey: .hiddenTabs) ?? hiddenTabs
         cameraMirrored = try values.decodeIfPresent(Bool.self, forKey: .cameraMirrored) ?? cameraMirrored
         lockSounds = try values.decodeIfPresent(Bool.self, forKey: .lockSounds) ?? lockSounds
         ambientSound = try values.decodeIfPresent(String.self, forKey: .ambientSound) ?? ambientSound

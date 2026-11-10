@@ -88,6 +88,11 @@ Read what the Mac is doing at any time with `pmset -g | grep SleepDisabled` (1 =
 ## Settings
 
 - [ ] Hover-open off: the island then needs a click. The close delay changes how fast it closes.
+- [ ] Sliders: the sound volume (Focus), the overall and per-app volumes (Stats), the player's progress bar and "Close delay" (Settings) are all the same system slider with the glass knob. Dragging the player's bar moves the time shown, and the song jumps when you let go.
+- [ ] Tabs: grab a row by its handle (or its name) and drag it over the others: the rows slide, and the tab bar and the swipe follow the new order at once. Quit and reopen: the order is kept. "Reset to the default order" puts it back.
+- [ ] Tabs: switch a tab off: it leaves the tab bar and the swipe, and its row dims. If it was the open tab, the island shows the first tab that is on. Switch it on again: it is back where it was in the order. Quit and reopen: the switches are kept.
+- [ ] Tabs: switch tabs off until one is left: that last switch cannot be turned off.
+- [ ] Tabs: with Shelf off, dragging a file toward the notch does not open the island. With GitHub off, clicking a pull request link in a Teams message opens it in the browser.
 - [ ] "Open Island when I log in" shows up in System Settings ▸ General ▸ Login Items (it may need approving there, and works best from /Applications).
 
 ## Packaging

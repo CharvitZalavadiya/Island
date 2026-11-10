@@ -25,4 +25,36 @@ public enum TabOrder {
         result.insert(id, at: target)
         return result
     }
+
+    /// `id` moved to where `target` is now: dragging a row onto another row puts it in that row's place, and the rows in
+    /// between shift by one. An unknown id or target, or the same row, changes nothing.
+    public static func moved(_ order: [String], id: String, to target: String) -> [String] {
+        guard id != target, let from = order.firstIndex(of: id), let to = order.firstIndex(of: target) else { return order }
+        var result = order
+        result.remove(at: from)
+        result.insert(id, at: to)
+        return result
+    }
+
+    /// `ordered` without the tabs in `hidden` (ids that are not in `ordered` are ignored). The island is never left with no
+    /// tab: if `hidden` would remove every one (a hand-edited setting), all of them are shown.
+    public static func shown(_ ordered: [String], hidden: [String]) -> [String] {
+        let off = Set(hidden)
+        let result = ordered.filter { !off.contains($0) }
+        return result.isEmpty ? ordered : result
+    }
+
+    /// The list of switched-off tabs after `id` is switched on (`shown: true`) or off. The last tab that is on cannot be
+    /// switched off, and an unknown id changes nothing. The result holds each known id once, in the order of `all`.
+    public static func settingShown(_ shown: Bool, id: String, hidden: [String], all: [String]) -> [String] {
+        guard all.contains(id) else { return hidden }
+        var off = Set(hidden).intersection(all)
+        if shown {
+            off.remove(id)
+        } else if !off.contains(id) {
+            guard all.filter({ !off.contains($0) }).count > 1 else { return all.filter(off.contains) }
+            off.insert(id)
+        }
+        return all.filter(off.contains)
+    }
 }

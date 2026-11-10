@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Foundation
 import IslandCore
@@ -109,8 +110,16 @@ public final class IslandServices {
     }
 
     /// Shows the GitHub tab and opens a pull request link there for review. GitHub is started first: its saved token is only
-    /// read when its tab is first used, and the tab may not have been opened yet this time.
-    static func openPullRequestInGitHubTab(_ link: String, model: IslandModel, github: GitHubController) async {
+    /// read when its tab is first used, and the tab may not have been opened yet this time. With the GitHub tab switched off
+    /// in Settings there is nowhere in the island to review it, so the link opens in the default browser instead.
+    static func openPullRequestInGitHubTab(
+        _ link: String, model: IslandModel, github: GitHubController,
+        openInBrowser: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    ) async {
+        guard model.isShown(.github) else {
+            if let url = URL(string: link) { openInBrowser(url) }
+            return
+        }
         model.selectedTab = .github
         await github.start()
         _ = await github.openPullRequest(link: link)

@@ -23,6 +23,26 @@ APP=build/Island.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/Island" "$APP/Contents/MacOS/Island"
+
+# macOS decides how an app looks (Liquid Glass sliders, switches, buttons, or the old flat style) from the SDK the app says it
+# was built with. A release build is linked through LTO, and with Xcode 27 the linker then writes the app's minimum macOS
+# version (14.2) in that place, so macOS treated Island as an old app and drew old-style controls. This writes the SDK that
+# really was used (the minimum version stays as it is). It must happen before signing, which covers the file.
+stamp_sdk() {
+    local binary="$1" sdk have minimum
+    sdk="$(xcrun --sdk macosx --show-sdk-version)"
+    have="$(vtool -show-build "$binary" | awk '/ sdk / { print $2; exit }')"
+    minimum="$(vtool -show-build "$binary" | awk '/ minos / { print $2; exit }')"
+    if [ -z "$sdk" ] || [ -z "$minimum" ]; then
+        echo "warning: could not read the SDK version, so the app is not stamped with it (controls may look old-style)" >&2
+    elif [ "$have" != "$sdk" ]; then
+        vtool -set-build-version macos "$minimum" "$sdk" -replace -output "$binary.stamped" "$binary" >/dev/null
+        mv "$binary.stamped" "$binary"
+        echo "Stamped the app with the macOS $sdk SDK it was built with (it said $have; the minimum stays $minimum)"
+    fi
+}
+stamp_sdk "$APP/Contents/MacOS/Island"
+
 cp Packaging/Info.plist "$APP/Contents/Info.plist"
 # One place says what version this is: Sources/IslandCore/Version.swift. The built app is stamped from it.
 VERSION="$(sed -n 's/.*islandVersion = "\(.*\)".*/\1/p' Sources/IslandCore/Version.swift)"

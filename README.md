@@ -71,7 +71,9 @@ Island asks only when you use a feature, and explains why:
   backups, and deleted when you disconnect. **Island does not use the Keychain**, on purpose: because the app is signed
   without a paid Apple certificate, macOS would ask for your Mac password for each saved token after every update. The
   trade-off is that any program running as you can read those files; use a token with only the permissions Island needs
-  (GitHub: `repo`), and disconnect when you are done.
+  (GitHub: `repo`), and disconnect when you are done. Updating Island replaces only the app, never that folder, so you
+  make a token once and the same one keeps working after every update (it is only asked for again if the service itself
+  revokes it or it expires).
 - There is **no analytics and no telemetry**. Island talks only to the services you connect (GitHub, Todoist, Microsoft),
   to the websites you open in its browser, to Apple for the speed test, and to GitHub to ask whether a newer version exists
   (about once a day; nothing about you or your Mac is sent; it can be switched off).

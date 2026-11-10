@@ -212,6 +212,13 @@ private func failure(_ work: () async throws -> Void) async -> UpdateError? {
         defer { scene.cleanUp() }
         let progress = Progress()
 
+        // A person who has already connected GitHub and Teams: their tokens are in Island's data folder, which is not part of the app.
+        let secrets = scene.root.appendingPathComponent("island-data/secrets", isDirectory: true)
+        let github = FileTokenStore(directory: secrets, service: "github")
+        let teams = FileTokenStore(directory: secrets, service: "teams")
+        #expect(github.save("ghp_fake_token_for_the_test") && teams.save(#"{"refreshToken":"fake"}"#))
+        let before = try Data(contentsOf: secrets.appendingPathComponent("github"))
+
         let prepared = try await scene.installer.prepare(scene.release) { progress.add($0) }
         #expect(installedVersion(prepared.newApp) == "9.9.9")                        // the new app is waiting next to the old one...
         #expect(prepared.newApp.deletingLastPathComponent() == scene.applications)   // ...on the same disk, so the swap is a rename
@@ -242,6 +249,11 @@ private func failure(_ work: () async throws -> Void) async -> UpdateError? {
         #expect(scene.stagedApps.isEmpty)                                            // nothing left behind...
         #expect(!FileManager.default.fileExists(atPath: prepared.backupApp.path))    // ...not even the old copy
         #expect(run("/usr/bin/codesign", ["--verify", "--deep", "--strict", scene.installed.path]).status == 0)
+
+        // The new version finds the same tokens, so nobody has to make or paste a token again after an update.
+        #expect(FileTokenStore(directory: secrets, service: "github").load() == "ghp_fake_token_for_the_test")
+        #expect(FileTokenStore(directory: secrets, service: "teams").load() == #"{"refreshToken":"fake"}"#)
+        #expect(try Data(contentsOf: secrets.appendingPathComponent("github")) == before)
     }
 
     @Test func aDownloadThatDoesNotMatchItsChecksumIsThrownAwayAndNothingIsTouched() async throws {

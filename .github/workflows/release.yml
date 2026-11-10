@@ -35,16 +35,20 @@ jobs:
           xcode-version: latest-stable
 
       - name: Read the version
+        id: version
         run: |
           VERSION="$(sed -n 's/.*islandVersion = "\(.*\)".*/\1/p' Sources/IslandCore/Version.swift)"
           if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::Sources/IslandCore/Version.swift must say islandVersion = \"MAJOR.MINOR.PATCH\" (found: '$VERSION')"
             exit 1
           fi
+          # (Later steps read it as $VERSION in a script, or as steps.version.outputs.version in the workflow itself.)
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "This is version $VERSION"
 
       - name: Is this a new version? (only a new version is released)
+        id: decide
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -59,8 +63,9 @@ jobs:
           decision="$(.github/scripts/release-decision.sh "$VERSION" $released)"
           echo "Version in the file: $VERSION, so: $decision"
           if [ "$decision" = "release" ]; then
-            echo "PUBLISH=true" >> "$GITHUB_ENV"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
           else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Version $VERSION is already released, so nothing is published. To release, raise the version in Sources/IslandCore/Version.swift."
           fi
 
@@ -68,24 +73,24 @@ jobs:
         run: swift test
 
       - name: Release notes (from CHANGELOG.md, with the install guide)
-        if: env.PUBLISH == 'true'
+        if: steps.decide.outputs.publish == 'true'
         run: .github/scripts/release-notes.sh "$VERSION" > release-notes.md && cat release-notes.md
 
       - name: Build the universal app and the disk image
-        if: env.PUBLISH == 'true'
+        if: steps.decide.outputs.publish == 'true'
         run: scripts/release.sh
 
       - name: Keep the build with the run
-        if: env.PUBLISH == 'true'
+        if: steps.decide.outputs.publish == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: Island-${{ env.VERSION }}
+          name: Island-${{ steps.version.outputs.version }}
           path: |
             dist/Island-*.dmg
             dist/Island-*.dmg.sha256
 
       - name: Publish the release
-        if: env.PUBLISH == 'true'
+        if: steps.decide.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

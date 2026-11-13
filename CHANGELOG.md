@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.1
+
+- **Tap and hold** (Tools tab, *Tap gestures*). Besides the double and triple taps, three fingers or four fingers put down
+  together and held still for a second and a half can now do something of their own: each row of cards has a third card,
+  *Tap and hold*, and you choose what it does from the same list of actions (copy, paste, screenshot, open an app, run a
+  Shortcut, lock the screen and so on). The action runs as soon as the time is up, while your fingers are still down, so you
+  can lift them then. Fingers that move, land one after another, or lift early do not count.
+
 ## 1.3.0
 
 - **Trackpad edge gestures** (Tools tab). Slide one finger along an edge of the trackpad to change the volume or the

@@ -6,6 +6,8 @@ private let width = 121.94, height = 74.08
 private let double3 = TrackpadTapTrigger(fingers: 3, taps: 2)
 private let triple3 = TrackpadTapTrigger(fingers: 3, taps: 3)
 private let double4 = TrackpadTapTrigger(fingers: 4, taps: 2)
+private let hold3 = TrackpadTapTrigger.hold(fingers: 3)
+private let hold4 = TrackpadTapTrigger.hold(fingers: 4)
 private let triple4 = TrackpadTapTrigger(fingers: 4, taps: 3)
 
 /// `count` fingers in the middle of the pad, 15 mm apart, all moved `shift` millimetres to the right.
@@ -189,11 +191,13 @@ private struct Hand {
 
 // MARK: The triggers and the settings
 
-@Test func thereAreFourWaysToTapAndEachHasItsOwnNameAndSavedKey() {
-    #expect(TrackpadTapTrigger.all.count == 4)
-    #expect(Set(TrackpadTapTrigger.all.map(\.id)) == ["3-2", "3-3", "4-2", "4-3"])
+@Test func thereAreSixWaysToTapAndEachHasItsOwnNameAndSavedKey() {
+    #expect(TrackpadTapTrigger.all.count == 6)
+    #expect(Set(TrackpadTapTrigger.all.map(\.id)) == ["3-2", "3-3", "3-hold", "4-2", "4-3", "4-hold"])
     #expect(double3.title == "Three fingers, double tap" && triple4.title == "Four fingers, triple tap")
     #expect(double3.tapsTitle == "Double tap" && triple3.tapsTitle == "Triple tap" && double4.fingersTitle == "Four fingers")
+    #expect(hold3.title == "Three fingers, tap and hold" && hold4.title == "Four fingers, tap and hold")
+    #expect(hold3.tapsTitle == "Tap and hold" && hold3.isHold && hold4.isHold && !double3.isHold && !triple4.isHold)
 }
 
 @Test func tapsAreOnFromTheStartWithNothingAssignedSoNothingHappensByAccident() {
@@ -238,4 +242,129 @@ private struct Hand {
     #expect(old.trackpadTapAction(for: double3) == .none)
     #expect(old.trackpadTapAction(for: double4) == .mute)
     #expect(old.trackpadWantedTaps == [double4])
+}
+
+// MARK: Tap and hold
+
+extension Hand {
+    /// Puts `count` fingers down together and keeps them there for `seconds` (a frame every `step`), without lifting.
+    fileprivate mutating func putDownAndHold(_ count: Int, for seconds: TimeInterval, step: TimeInterval = 0.1) {
+        feed(fingers(count))
+        var elapsed = 0.0
+        while elapsed + step <= seconds + 1e-9 {
+            feed(fingers(count), after: step)
+            elapsed += step
+        }
+    }
+}
+
+@Test func threeFingersHeldStillAreAHoldReportedOnceWhileTheyAreStillDownAndNotBefore() {
+    var hand = Hand(wanted: [hold3])
+    hand.putDownAndHold(3, for: 1.4)
+    #expect(hand.events.isEmpty)                                             // not yet: the hold time is a second and a half
+    hand.feed(fingers(3), after: 0.2)
+    #expect(hand.fired == [hold3])                                           // reported while the fingers are still down
+    hand.feed(fingers(3), after: 0.5)
+    hand.feed(fingers(3), after: 1.0)
+    #expect(hand.fired == [hold3])                                           // once only, however long they stay
+    hand.feed(lifted, after: 0.05)
+    #expect(hand.fired == [hold3])                                           // and nothing more when they lift
+}
+
+@Test func fourFingersHeldStillAreAHoldToo() {
+    var hand = Hand(wanted: [hold4])
+    hand.putDownAndHold(4, for: 1.7)
+    #expect(hand.fired == [hold4])
+}
+
+@Test func theHoldIsReportedFromTheTimerEvenIfNoFramesArriveWhileTheFingersAreStill() {
+    var hand = Hand(wanted: [hold3])
+    let landed = hand.time
+    hand.feed(fingers(3))
+    let deadline = try! #require(hand.engine.deadline)
+    #expect(abs(deadline - (landed + TrackpadTapEngine.holdSeconds)) < 1e-9)
+    #expect(hand.engine.expire(wanted: hand.wanted, at: deadline - 0.05).isEmpty)
+    #expect(hand.engine.expire(wanted: hand.wanted, at: deadline) == [.tapped(hold3)])
+    #expect(hand.engine.expire(wanted: hand.wanted, at: deadline + 0.5).isEmpty)       // once only
+    #expect(hand.engine.deadline == nil)
+}
+
+@Test func fingersThatWanderArriveLateOrAreTheWrongNumberAreNotAHold() {
+    // Fingers that slide partway through.
+    var slide = Hand(wanted: [hold3, hold4])
+    slide.feed(fingers(3))
+    slide.feed(fingers(3), after: 0.5)
+    slide.feed(fingers(3, shift: 6), after: 0.1)
+    slide.feed(fingers(3, shift: 6), after: 1.5)
+    #expect(slide.events.isEmpty)
+
+    // The third finger lands half a second after the first two.
+    var late = Hand(wanted: [hold3, hold4])
+    late.feed(fingers(2))
+    late.feed(fingers(3), after: 0.5)
+    late.feed(fingers(3), after: 1.6)
+    #expect(late.events.isEmpty)
+
+    // Two fingers, five fingers.
+    for count in [1, 2, 5] {
+        var wrong = Hand(wanted: [hold3, hold4])
+        wrong.putDownAndHold(count, for: 2.0)
+        #expect(wrong.events.isEmpty, "\(count) fingers")
+    }
+
+    // One of the three lifts before the time is up.
+    var lifting = Hand(wanted: [hold3, hold4])
+    lifting.feed(fingers(3))
+    lifting.feed(fingers(2), after: 1.0)
+    lifting.feed(fingers(2), after: 1.0)
+    #expect(lifting.events.isEmpty)
+}
+
+@Test func aHoldIsOnlyForTheNumberOfFingersThatWasSet() {
+    var threeAsked = Hand(wanted: [hold3])
+    threeAsked.putDownAndHold(4, for: 2.0)
+    #expect(threeAsked.events.isEmpty)
+    var fourAsked = Hand(wanted: [hold4])
+    fourAsked.putDownAndHold(3, for: 2.0)
+    #expect(fourAsked.events.isEmpty)
+    var none = Hand(wanted: [double3])
+    none.putDownAndHold(3, for: 2.0)
+    #expect(none.events.isEmpty && none.engine.deadline == nil)             // no hold wanted: nothing is waited for
+}
+
+@Test func aHoldIsNotAlsoATapWhenTheFingersLiftAndTapsStillWorkAfterwards() {
+    var hand = Hand(wanted: [hold3, double3])
+    hand.putDownAndHold(3, for: 1.7)
+    hand.feed(lifted, after: 0.05)
+    #expect(hand.fired == [hold3])
+    hand.time += 0.5
+    hand.tap(3)
+    hand.tap(3)
+    #expect(hand.fired == [hold3, double3])
+}
+
+@Test func tapsAreReportedAtOnceWhenAHoldIsWantedToo() {
+    var hand = Hand(wanted: [hold3, double3])
+    hand.tap(3)
+    hand.tap(3)
+    #expect(hand.fired == [double3])                                         // a hold is not a longer run of taps: no waiting
+}
+
+@Test func aHoldThatFollowsTapsDoesNotSwallowThemButCountsAfterThem() {
+    var hand = Hand(wanted: [double3, triple3, hold3])
+    hand.tap(3)
+    hand.tap(3, then: 0.05)
+    #expect(hand.events.isEmpty)                                             // a third tap might still come
+    hand.putDownAndHold(3, for: 1.7)                                         // but this is a hold: the double tap is complete
+    #expect(hand.fired == [double3, hold3])
+}
+
+@Test func theHoldsAreSavedUnderTheirOwnNamesAndAreWantedOnlyWhenAssigned() throws {
+    var settings = Settings()
+    #expect(settings.trackpadWantedTaps.isEmpty)
+    settings.trackpadTapActions = ["3-hold": "mute", "4-hold": "lockScreen", "4-2": "none"]
+    let back = try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(settings))
+    #expect(back.trackpadTapAction(for: hold3) == .mute && back.trackpadTapAction(for: hold4) == .lockScreen)
+    #expect(back.trackpadWantedTaps == [hold3, hold4])
+    #expect(back.trackpadTapAction(for: double4) == .none)
 }

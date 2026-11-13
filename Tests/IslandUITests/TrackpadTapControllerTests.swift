@@ -11,6 +11,8 @@ import IslandCore
 private let double3 = TrackpadTapTrigger(fingers: 3, taps: 2)
 private let triple3 = TrackpadTapTrigger(fingers: 3, taps: 3)
 private let double4 = TrackpadTapTrigger(fingers: 4, taps: 2)
+private let hold3 = TrackpadTapTrigger.hold(fingers: 3)
+private let hold4 = TrackpadTapTrigger.hold(fingers: 4)
 
 private final class Clock: @unchecked Sendable {
     var time: TimeInterval = 1
@@ -331,4 +333,83 @@ private func fingers(_ count: Int) -> TrackpadFrame {
     rig.controller.setTapsEnabled(false)
     rig.controller.setTapsEnabled(true)
     #expect(rig.controller.tapAction(for: double3) == .mute && rig.source.isRunning)
+}
+
+// MARK: Tap and hold
+
+extension Rig {
+    /// Puts `count` fingers down together and keeps them there for `seconds` (a frame every tenth of a second), without lifting.
+    fileprivate func putDownAndHold(_ count: Int, for seconds: TimeInterval) {
+        source.send(fingers(count))
+        var elapsed = 0.0
+        while elapsed + 0.1 <= seconds + 1e-9 {
+            clock.time += 0.1
+            source.send(fingers(count))
+            elapsed += 0.1
+        }
+    }
+
+    fileprivate func liftAll() {
+        source.send(TrackpadFrame(touches: [], widthMM: 121.94, heightMM: 74.08))
+        clock.time += 0.1
+    }
+}
+
+@Test @MainActor func aHoldRunsItsActionOnceWhileTheFingersAreStillDownAndNotBeforeTheTime() async throws {
+    let rig = Rig(tweak: { $0.trackpadTapActions = ["3-hold": "mute"] })
+    rig.controller.start()
+    rig.putDownAndHold(3, for: 1.4)
+    try await rig.settle()
+    #expect(rig.runner.calls.isEmpty)                                         // not yet
+    rig.clock.time += 0.2
+    rig.source.send(fingers(3))
+    try await rig.settle()
+    #expect(rig.runner.calls.map(\.action) == [.mute] && rig.feedback.shown == ["Mute"])   // while the fingers are still down
+    rig.putDownAndHold(3, for: 0.5)
+    rig.liftAll()
+    try await rig.settle()
+    #expect(rig.runner.calls.map(\.action) == [.mute])                        // once only, and nothing when they lift
+}
+
+@Test @MainActor func aHoldIsReportedByTheTimerWhenNoFramesArriveWhileTheFingersAreStill() async throws {
+    let rig = Rig(tweak: { $0.trackpadTapActions = ["4-hold": "lockScreen"] })
+    rig.controller.start()
+    rig.source.send(fingers(4))                                               // the fingers land, and then the pad says nothing more
+    #expect(rig.timers.count >= 1)
+    rig.clock.time += 1.6
+    rig.timers.fire()
+    try await rig.settle()
+    #expect(rig.runner.calls.map(\.action) == [.lockScreen])
+}
+
+@Test @MainActor func aHoldAndATapOnTheSameFingersEachDoTheirOwnThing() async throws {
+    let rig = Rig(tweak: { $0.trackpadTapActions = ["3-2": "copy", "3-hold": "paste"] })
+    rig.controller.start()
+    rig.tap(3)
+    rig.tap(3)
+    try await rig.settle()
+    #expect(rig.runner.calls.map(\.action) == [.copy])
+    rig.clock.time += 0.6
+    rig.putDownAndHold(3, for: 1.7)
+    rig.liftAll()
+    try await rig.settle()
+    #expect(rig.runner.calls.map(\.action) == [.copy, .paste])
+}
+
+@Test @MainActor func theTrackpadIsReadForAHoldThatIsSetEvenWithNothingElseOn() {
+    let rig = Rig(edges: false, tweak: { $0.trackpadTapActions = ["4-hold": "mute"] })
+    rig.controller.start()
+    #expect(rig.source.isRunning)
+}
+
+@Test @MainActor func whileTheTapPopupIsOpenAHoldIsNoticedEvenIfItDoesNothing() async throws {
+    let rig = Rig(edges: false)
+    rig.controller.start()
+    rig.controller.setTapPreviewing(true)
+    rig.putDownAndHold(4, for: 1.7)
+    try await rig.settle()
+    #expect(rig.controller.lastTap?.trigger == hold4)
+    #expect(rig.runner.calls.isEmpty && rig.feedback.shown.isEmpty)
+    rig.liftAll()
+    rig.controller.setTapPreviewing(false)
 }

@@ -33,12 +33,12 @@ private struct TapsPage: View {
         let action = settings.trackpadTapAction(for: selected)
         HStack(alignment: .top, spacing: 16) {
             cards
-                .frame(width: 214)
+                .frame(width: 262)
             VStack(alignment: .leading, spacing: 7) {
                 Text(selected.title).font(.system(size: 12, weight: .semibold))
                 actionMenu(action)
                 detail(action)
-                Text(Self.hint(action))
+                Text(Self.hint(action, for: selected))
                     .font(.system(size: 10.5))
                     .foregroundStyle(.white.opacity(0.55))
                     .fixedSize(horizontal: false, vertical: true)
@@ -68,7 +68,7 @@ private struct TapsPage: View {
         VStack(spacing: 6) {
             ForEach([3, 4], id: \.self) { fingers in
                 HStack(spacing: 6) {
-                    ForEach([2, 3], id: \.self) { taps in
+                    ForEach([2, 3, 0], id: \.self) { taps in           // 0 is a hold
                         let trigger = TrackpadTapTrigger(fingers: fingers, taps: taps)
                         TapCard(
                             trigger: trigger, action: settings.trackpadTapAction(for: trigger), isSelected: trigger == selected,
@@ -173,9 +173,12 @@ private struct TapsPage: View {
         }
     }
 
-    private static func hint(_ action: TrackpadTapAction) -> String {
+    private static func hint(_ action: TrackpadTapAction, for trigger: TrackpadTapTrigger) -> String {
         switch action {
-        case .none: "Tap with three or four fingers, two or three times in a row, quickly. Choose what it does."
+        case .none:
+            trigger.isHold
+                ? "Put \(trigger.fingers) fingers down together and keep them still for \(String(format: "%.1f", TrackpadTapEngine.holdSeconds)) seconds. Then choose what it does."
+                : "Tap with \(trigger.fingers) fingers \(trigger.taps == 2 ? "twice" : "three times") in a row, quickly. Then choose what it does."
         case .copy: "Presses ⌘C in the app you are using. macOS asks you to allow this once."
         case .paste: "Presses ⌘V in the app you are using. macOS asks you to allow this once."
         case .screenshot: "Opens the screenshot tools (the same as ⇧⌘5)."
@@ -218,10 +221,10 @@ private struct TapCard: View {
                         Circle().fill(isFlashed ? IslandTheme.accent : Color.white.opacity(0.75)).frame(width: 7, height: 7)
                     }
                 }
-                Text(trigger.tapsTitle).font(.system(size: 11, weight: .semibold))
+                Text(trigger.tapsTitle).font(.system(size: 11, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
                 HStack(spacing: 3) {
                     Image(systemName: action.symbol).font(.system(size: 9.5, weight: .semibold))
-                    Text(action.shortTitle).font(.system(size: 10.5)).lineLimit(1)
+                    Text(action.shortTitle).font(.system(size: 10.5)).lineLimit(1).minimumScaleFactor(0.8)
                 }
                 .foregroundStyle(action == .none ? Color.white.opacity(0.4) : IslandTheme.trackpadTaps)
             }

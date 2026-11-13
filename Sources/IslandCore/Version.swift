@@ -1,1 +1,1 @@
-public let islandVersion = "1.3.0"
+public let islandVersion = "1.3.1"

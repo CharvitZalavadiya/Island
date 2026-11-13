@@ -46,6 +46,8 @@ final class NowPlayingController {
         case player
         /// The minimal view shows what is playing.
         case minimalView
+        /// A trackpad edge is set to skip through what is playing.
+        case trackpad
     }
 
     private(set) var status: Status = .stopped

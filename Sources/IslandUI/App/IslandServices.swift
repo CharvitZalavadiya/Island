@@ -32,6 +32,7 @@ public final class IslandServices {
     let textTools: TextToolsController
     let tools: ToolsController
     let nowPlaying: NowPlayingController
+    let trackpad: TrackpadController
     let mediaMonitor: MediaActivityMonitor
     let cameraSession: AVCaptureSession
     let cameraPreview: PreviewView
@@ -87,6 +88,7 @@ public final class IslandServices {
         tools = ToolsController()
         nowPlaying = NowPlayingController()
         mediaMonitor = MediaActivityMonitor(player: nowPlaying, model: model)
+        trackpad = TrackpadController(settings: model.settings, seeker: nowPlaying, runner: SystemActionRunner(nowPlaying: nowPlaying))
         // Logins and tokens: files in Island's own data folder, readable only by this user (see `FileTokenStore` for why not the
         // Keychain). A copy started with its own data folder (`--support-dir`) therefore has its own, empty, set.
         let secrets = supportDirectory.appendingPathComponent("secrets", isDirectory: true)
@@ -137,6 +139,7 @@ public final class IslandServices {
         clipboard.start()
         lockSounds.start()
         mediaMonitor.start()
+        trackpad.start()
         update.startAutomaticChecks()
         startScreenshotWatcher()
     }
@@ -156,6 +159,7 @@ public final class IslandServices {
     /// Called when Island quits normally.
     public func willTerminate() {
         mixer.shutdown()   // every app plays at full volume again
+        trackpad.shutdown()   // and the pointer follows the trackpad again
         keepAwake.willTerminate()
     }
 }

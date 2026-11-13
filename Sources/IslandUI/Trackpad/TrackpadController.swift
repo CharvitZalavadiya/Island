@@ -44,6 +44,14 @@ final class TrackpadController {
     private(set) var framesSeen = 0
     /// The edge a gesture is going on at now.
     private(set) var edgeInUse: TrackpadEdge?
+    /// The tap that was seen last, so the popup can show it was noticed (`id` changes with every tap, even of the same kind).
+    struct SeenTap: Equatable {
+        var trigger: TrackpadTapTrigger
+        var id: Int
+    }
+    private(set) var lastTap: SeenTap?
+    /// The person's own Shortcuts, for choosing one (filled in by `loadShortcuts`).
+    private(set) var shortcutNames: [String] = []
 
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let source: TouchSource
@@ -52,10 +60,16 @@ final class TrackpadController {
     @ObservationIgnored private let brightness: BrightnessControlling
     @ObservationIgnored private let seeker: TrackSeeking
     @ObservationIgnored private let feedback: TrackpadFeedback
+    @ObservationIgnored private let runner: TrackpadActionPerforming
+    @ObservationIgnored private let shortcutLister: () async -> [String]
+    @ObservationIgnored private var tapCount = 0
     @ObservationIgnored private let now: () -> TimeInterval
     @ObservationIgnored let pipeline: TrackpadPipeline
 
-    @ObservationIgnored private var previewing = false
+    /// A popup is open that shows the fingers (Slide gestures), or one that shows every tap (Tap gestures).
+    @ObservationIgnored private var previewingTouches = false
+    @ObservationIgnored private var previewingTaps = false
+    private var previewing: Bool { previewingTouches || previewingTaps }
     @ObservationIgnored private var sourceRunning = false
     @ObservationIgnored private var preview: Timer?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
@@ -82,6 +96,7 @@ final class TrackpadController {
         settings: SettingsStore, seeker: TrackSeeking, source: TouchSource = MultitouchSource(),
         freeze: PointerFreezing = PointerFreeze(), system: AudioSystem = CoreAudioSystem(),
         brightness: BrightnessControlling = DisplayServicesBrightness(), feedback: TrackpadFeedback? = nil,
+        runner: TrackpadActionPerforming? = nil, shortcutLister: @escaping () async -> [String] = { await ShortcutsList.load() },
         pipeline: TrackpadPipeline? = nil, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.settings = settings
@@ -91,10 +106,15 @@ final class TrackpadController {
         self.system = system
         self.brightness = brightness
         self.feedback = feedback ?? TrackpadHUDController()
+        self.runner = runner ?? SystemActionRunner()
+        self.shortcutLister = shortcutLister
         self.now = now
-        self.pipeline = pipeline ?? TrackpadPipeline(config: Self.config(settings.settings), freeze: freeze)
+        self.pipeline = pipeline ?? TrackpadPipeline(config: Self.config(settings.settings, previewing: false), freeze: freeze)
         self.pipeline.onEvent = { [weak self] event in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.apply(event) } }
+        }
+        self.pipeline.onTap = { [weak self] trigger in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.apply(tap: trigger) } }
         }
     }
 
@@ -133,8 +153,49 @@ final class TrackpadController {
         }
     }
 
-    private static func config(_ settings: Settings) -> TrackpadPipeline.Config {
-        TrackpadPipeline.Config(activeEdges: settings.trackpadActiveEdges, edgeMM: settings.trackpadEdgeMM)
+    // MARK: What is set for taps
+
+    var isTapsEnabled: Bool { settings.settings.trackpadTapsEnabled }
+    func tapAction(for trigger: TrackpadTapTrigger) -> TrackpadTapAction { settings.settings.trackpadTapAction(for: trigger) }
+    func tapApp(for trigger: TrackpadTapTrigger) -> String? { settings.settings.trackpadTapApp(for: trigger) }
+    func tapShortcut(for trigger: TrackpadTapTrigger) -> String? { settings.settings.trackpadTapShortcut(for: trigger) }
+
+    func setTapsEnabled(_ on: Bool) {
+        settings.update { $0.trackpadTapsEnabled = on }
+        refresh()
+    }
+
+    func setTapAction(_ action: TrackpadTapAction, for trigger: TrackpadTapTrigger) {
+        settings.update { $0.trackpadTapActions[trigger.id] = action.rawValue }
+        refresh()
+    }
+
+    func setTapApp(_ path: String?, for trigger: TrackpadTapTrigger) {
+        settings.update { $0.trackpadTapApps[trigger.id] = path ?? "" }
+    }
+
+    func setTapShortcut(_ name: String?, for trigger: TrackpadTapTrigger) {
+        settings.update { $0.trackpadTapShortcuts[trigger.id] = name ?? "" }
+    }
+
+    /// Looks up the person's Shortcuts, for the list to choose from.
+    func loadShortcuts() async { shortcutNames = await shortcutLister() }
+
+    var hasAccessibility: Bool { runner.hasAccessibility }
+    func requestAccessibility() { runner.requestAccessibility() }
+
+    /// macOS itself can do something when three fingers tap (look a word up); then it would happen along with the person's choice.
+    var systemThreeFingerTapIsOn: Bool {
+        ["com.apple.AppleMultitouchTrackpad", "com.apple.driver.AppleBluetoothMultitouch.trackpad"].contains {
+            (UserDefaults(suiteName: $0)?.integer(forKey: "TrackpadThreeFingerTapGesture") ?? 0) != 0
+        }
+    }
+
+    /// While the Tap gestures popup is open every tap is followed, so it can show it was noticed; only the ones that do something act.
+    private static func config(_ settings: IslandCore.Settings, previewing: Bool) -> TrackpadPipeline.Config {
+        TrackpadPipeline.Config(
+            activeEdges: settings.trackpadActiveEdges, edgeMM: settings.trackpadEdgeMM,
+            wantedTaps: previewing ? Set(TrackpadTapTrigger.all) : settings.trackpadWantedTaps)
     }
 
     // MARK: Starting and stopping
@@ -151,9 +212,15 @@ final class TrackpadController {
         refresh()
     }
 
-    /// The Trackpad tab is on screen: follow the fingers so they can be shown, even with the gestures switched off.
+    /// The Slide gestures popup is open: follow the fingers so they can be shown, even with the gestures switched off.
     func setPreviewing(_ on: Bool) {
-        previewing = on
+        previewingTouches = on
+        refresh()
+    }
+
+    /// The Tap gestures popup is open: follow every tap (not only the ones that do something) so each can be shown as it is noticed.
+    func setTapPreviewing(_ on: Bool) {
+        previewingTaps = on
         refresh()
     }
 
@@ -167,9 +234,9 @@ final class TrackpadController {
 
     private func refresh() {
         let current = settings.settings
-        pipeline.update(Self.config(current), gesturesOn: current.trackpadEnabled)
+        pipeline.update(Self.config(current, previewing: previewingTaps), gesturesOn: current.trackpadEnabled)
         seeker.listen(current.trackpadEnabled && current.trackpadActiveEdges.contains { current.trackpadAction(for: $0) == .seek })
-        if current.trackpadEnabled || previewing {
+        if current.trackpadEnabled || !current.trackpadWantedTaps.isEmpty || previewing {
             startSourceIfNeeded()
         } else {
             stopSource()
@@ -253,6 +320,24 @@ final class TrackpadController {
             flush(final: true)
             if edgeInUse == edge { edgeInUse = nil }
             gesture = nil
+        }
+    }
+
+    /// Does what this tap was set to do. Every tap is noted for the popup; it acts only if tapping is on and the tap has an action.
+    func apply(tap trigger: TrackpadTapTrigger) {
+        tapCount += 1
+        lastTap = SeenTap(trigger: trigger, id: tapCount)
+        let current = settings.settings
+        guard current.trackpadTapsEnabled else { return }
+        let action = current.trackpadTapAction(for: trigger)
+        guard action != .none else { return }
+        switch runner.perform(action, app: current.trackpadTapApp(for: trigger), shortcut: current.trackpadTapShortcut(for: trigger)) {
+        case .done:
+            feedback.show(symbol: action.symbol, fraction: nil, text: action.shortTitle)
+        case .needsAccessibility:
+            feedback.show(symbol: "lock.shield", fraction: nil, text: "Allow Island in Accessibility first")
+        case .unavailable(let reason):
+            feedback.show(symbol: "exclamationmark.triangle.fill", fraction: nil, text: reason)
         }
     }
 

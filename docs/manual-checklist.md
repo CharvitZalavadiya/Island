@@ -85,11 +85,11 @@ Read what the Mac is doing at any time with `pmset -g | grep SleepDisabled` (1 =
 - [ ] Right-click: Show in Finder and Unpin.
 - [ ] Move an app out of its folder: its tile dims and clicking explains.
 
-## Trackpad edge gestures (Tools tab)
+## Slide gestures (Tools tab)
 
 These need a real trackpad and your fingers, so they can only be checked by hand. The gestures are on from the start; the switch in the popup turns them off.
 
-- [ ] In the Tools tab, click the **Trackpad** tile: a card opens over the tab (the player is behind it) with a picture of the pad, and a close button at its top right. Closing it, or leaving the tab, closes it. Hovering the tile names it; its ring is full while the gestures are on.
+- [ ] In the Tools tab there are four tiles in a row: the colour picker, the keyboard lock, **Slide gestures** (pink-purple) and **Tap gestures** (blue). Hovering one names it and says whether it is on. Click **Slide gestures**: a card opens over the tab (the player is behind it) with a picture of the pad, and a close button at its top right. Closing it, or leaving the tab, closes it. Hovering the tile names it; its ring is full while the gestures are on.
 - [ ] With the card open, touch the pad: a dot shows where your finger is. Touch the right-hand edge at the top: the dot is at the top right (if it is upside down, the pad's up and down are the wrong way round and that needs fixing). The picture has the shape of your pad.
 - [ ] With the gestures on (they are at first; switch them off and on again to check the switch), slide one finger up the right edge: the volume goes up with a small indicator under the notch, down when you slide down. The pointer stays where it was while you slide, and moves normally again the moment you lift.
 - [ ] The left edge does the same for the brightness of the built-in screen.
@@ -98,6 +98,19 @@ These need a real trackpad and your fingers, so they can only be checked by hand
 - [ ] Click another edge in the picture, give it another job (or Off), reverse its direction, change the width and the speed: each takes effect straight away and is still there after quitting and opening Island.
 - [ ] With the gestures on, quit Island in the middle of a slide (or switch them off): the pointer is free again.
 - [ ] If macOS asks for a permission the first time (Input Monitoring or Accessibility), note what it asked for: the card says so if the pad cannot be read.
+
+## Tap gestures (Tools tab)
+
+Taps are on from the start, with nothing assigned. These need a real trackpad and your fingers.
+
+- [ ] Click the blue **Tap gestures** tile (it has its own popup and its own on/off switch, apart from Slide gestures): four cards (three fingers and four fingers, double tap and triple tap) each say "Not set". With the popup open, tap the pad with three fingers twice: the "Three fingers, double tap" card lights up (after a moment, because a triple tap is also possible) and is selected, and nothing else happens. Do the same for the other three.
+- [ ] Choose **Take a screenshot** for the three-finger double tap, close the popup, and tap with three fingers twice: the screenshot tools open. A single three-finger tap, a two-finger tap, a four-finger tap, three-finger swipes and normal clicking do nothing.
+- [ ] Give the triple tap another job: the double tap now waits a third of a second to see if a third tap comes, and a triple tap does only the triple tap's job.
+- [ ] Each action, once: Take a screenshot (the screenshot tools open), Mission Control, Open an app (Choose an app… and pick one; it opens or comes to the front), Run a Shortcut (the list shows your Shortcuts; one with Set Focus turns Do Not Disturb on and off), Lock the screen, Start the screen saver, Turn off the display, Mute or unmute, Play or pause (with something playing).
+- [ ] Copy and Paste: the popup says to allow Island in Accessibility; allow it (System Settings ▸ Privacy & Security ▸ Accessibility; it may need allowing again after Island is updated). Select text, tap to copy, click in another place, tap to paste. Without the permission the indicator says so.
+- [ ] If macOS's own "Look up & data detectors" is set to three-finger tap, the popup warns about it on the three-finger cards.
+- [ ] Switch the Taps switch off: no tap does anything, and the choices are still there when it is switched on again. Quit and open Island: the choices are kept.
+- [ ] Sliding along an edge and tapping do not get in each other's way (a slide never taps, a tap never holds the pointer).
 
 ## Settings
 

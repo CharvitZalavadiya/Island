@@ -32,12 +32,12 @@ struct TrackpadHUDView: View {
                     }
                 }
                 .frame(height: 5)
-            } else {
-                Spacer(minLength: 0)
             }
             Text(model.text)
                 .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                .frame(minWidth: 44, alignment: .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minWidth: 44, maxWidth: model.fraction == nil ? .infinity : nil, alignment: model.fraction == nil ? .leading : .trailing)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 14)

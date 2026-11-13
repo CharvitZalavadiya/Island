@@ -39,8 +39,10 @@ enum IslandTheme {
     static let storageMid = Color(hex: 0xFB923C)
     static let storageHigh = Color(hex: 0xEF4444)
 
-    /// The Trackpad tab.
-    static let trackpad = Color(hex: 0xF0ABFC)
+    /// The Slide gestures tool (Tools tab).
+    static let trackpadSlide = Color(hex: 0xF0ABFC)
+    /// The Tap gestures tool (Tools tab).
+    static let trackpadTaps = Color(hex: 0x38BDF8)
 
     static let accent = Color(hex: 0x22D3EE)
     static let accentSoft = accent.opacity(0.25)

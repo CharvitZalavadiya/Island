@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import IslandCore
 
 extension TrackpadAction {
@@ -12,77 +14,48 @@ extension TrackpadAction {
     }
 }
 
-/// The settings for edge gestures, opened from the Trackpad tile in the Tools tab as a card over the tab: a picture of the
-/// trackpad with its four edges (pick one), what sliding along it does, and how it behaves. Fingers on the pad show up in the
-/// picture as they touch it.
-struct TrackpadPopup: View {
+/// What sliding one finger along an edge of the trackpad does: a picture of the pad with its four edges (pick one), what sliding
+/// along it does, and how it behaves. Fingers on the pad show up in the picture as they touch it. Shown inside a `ToolPopup`.
+struct TrackpadSlideSettings: View {
     let controller: TrackpadController
     let settings: SettingsStore
-    let onClose: () -> Void
+
+    var body: some View {
+        SlidePage(controller: controller, settings: settings.settings)
+            // The fingers are followed (so they can be shown) only while this is open.
+            .onAppear { controller.setPreviewing(true) }
+            .onDisappear { controller.setPreviewing(false) }
+    }
+}
+
+private struct SlidePage: View {
+    let controller: TrackpadController
+    let settings: IslandCore.Settings
     @State private var selected: TrackpadEdge = .right
 
     private static let diagramWidth: CGFloat = 214
 
     var body: some View {
-        let current = settings.settings
-        VStack(alignment: .leading, spacing: 8) {
-            header
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    TrackpadDiagram(controller: controller, settings: current, selected: $selected, width: Self.diagramWidth)
-                    Text(statusText)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(width: Self.diagramWidth, alignment: .leading)
-                VStack(alignment: .leading, spacing: 7) {
-                    edgeControls(current)
-                    sliders(current)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color(white: 0.11)))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.12), lineWidth: 1))
-        .foregroundStyle(.white)
-        // The fingers are followed (so they can be shown) only while this card is open.
-        .onAppear { controller.setPreviewing(true) }
-        .onDisappear { controller.setPreviewing(false) }
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "rectangle.and.hand.point.up.left").foregroundStyle(IslandTheme.trackpad)
-            Text("Trackpad edge gestures").font(.system(size: 13, weight: .semibold))
-            Spacer()
-            Text(controller.isEnabled ? "On" : "Off")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(controller.isEnabled ? IslandTheme.accent : Color.white.opacity(0.5))
-            Toggle("Edge gestures", isOn: Binding(get: { controller.isEnabled }, set: { controller.setEnabled($0) }))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .tint(IslandTheme.accent)
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 16))
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                TrackpadDiagram(controller: controller, settings: settings, selected: $selected, width: Self.diagramWidth)
+                Text(statusText)
+                    .font(.system(size: 10.5))
                     .foregroundStyle(.white.opacity(0.55))
-                    .contentShape(Circle())
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .buttonStyle(.plain)
-            .focusable(false)
-            .help("Close")
+            .frame(width: Self.diagramWidth, alignment: .leading)
+            VStack(alignment: .leading, spacing: 7) {
+                edgeControls
+                sliders
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: 24)
     }
 
-    private func edgeControls(_ current: IslandCore.Settings) -> some View {
-        let action = current.trackpadAction(for: selected)
-        let reversed = current.trackpadIsReversed(selected)
+    private var edgeControls: some View {
+        let action = settings.trackpadAction(for: selected)
+        let reversed = settings.trackpadIsReversed(selected)
         return VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Text(selected.title).font(.system(size: 12, weight: .semibold))
@@ -112,14 +85,14 @@ struct TrackpadPopup: View {
         }
     }
 
-    private func sliders(_ current: IslandCore.Settings) -> some View {
+    private var sliders: some View {
         VStack(spacing: 2) {
             sliderRow(
-                "Edge width", value: Binding(get: { current.trackpadEdgeMM }, set: { controller.setEdgeMM($0) }),
-                range: TrackpadDefaults.edgeMMRange, text: "\(Int(current.trackpadEdgeMM.rounded())) mm")
+                "Edge width", value: Binding(get: { settings.trackpadEdgeMM }, set: { controller.setEdgeMM($0) }),
+                range: TrackpadDefaults.edgeMMRange, text: "\(Int(settings.trackpadEdgeMM.rounded())) mm")
             sliderRow(
-                "Speed", value: Binding(get: { current.trackpadSensitivity }, set: { controller.setSensitivity($0) }),
-                range: TrackpadDefaults.sensitivityRange, text: String(format: "%.1f×", current.trackpadSensitivity))
+                "Speed", value: Binding(get: { settings.trackpadSensitivity }, set: { controller.setSensitivity($0) }),
+                range: TrackpadDefaults.sensitivityRange, text: String(format: "%.1f×", settings.trackpadSensitivity))
         }
     }
 

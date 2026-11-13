@@ -4,10 +4,17 @@
 
 - **Trackpad edge gestures** (Tools tab). Slide one finger along an edge of the trackpad to change the volume or the
   brightness, or to skip through what is playing: the right edge does volume, the left edge brightness and the top edge
-  skipping, to start with. Click the new *Trackpad* tool to choose what each edge does (or switch it off), turn its
+  skipping, to start with. Click the new *Slide gestures* tool to choose what each edge does (or switch it off), turn its
   direction round, and set how wide the edge is and how far a slide goes. It is on from the start (switch it off in the
   same place), and the pointer stays where it was while you slide. *Experimental: it reads the trackpad through a macOS library that is not
   public, so a future macOS may stop it working.*
+
+- **Tap gestures** (Tools tab, a tool of its own beside *Slide gestures*, with its own colour). Tap the trackpad with three or four fingers,
+  twice or three times, and Island does what you chose for that tap: copy, paste, take a screenshot, open Mission
+  Control, open an app you pick, run one of your Shortcuts (a Shortcut with *Set Focus* turns Do Not Disturb on or off), lock
+  the screen, start the screen saver, turn off the display, mute, or play and pause. Taps are on from the start but nothing is
+  assigned until you choose. Each tool opens its settings in the same kind of popup over the tab. Copy and paste press the keys for you, so macOS asks you once to allow Island in *Accessibility*.
+  If macOS itself looks a word up when three fingers tap, turn that off in System Settings ▸ Trackpad, or both will happen.
 
 ## 1.2.0
 

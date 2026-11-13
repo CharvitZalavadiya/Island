@@ -37,6 +37,15 @@ public struct Settings: Codable, Equatable {
     public var trackpadEdgeMM = TrackpadDefaults.edgeMM
     /// How far one slide goes: 1 means a slide along a whole edge covers the whole range.
     public var trackpadSensitivity = TrackpadDefaults.sensitivity
+    /// Tapping the trackpad with three or four fingers, twice or three times, does what the person chose for that tap. On from the
+    /// start, and the person can switch it off; nothing is assigned until they choose.
+    public var trackpadTapsEnabled = true
+    /// What each tap does, by tap ("3-2" is three fingers, two taps) to action name. A tap that is missing does nothing.
+    public var trackpadTapActions: [String: String] = [:]
+    /// For the "open an app" action: where the app is, by tap.
+    public var trackpadTapApps: [String: String] = [:]
+    /// For the "run a Shortcut" action: the Shortcut's name, by tap.
+    public var trackpadTapShortcuts: [String: String] = [:]
     /// Which tasks the Tasks tab shows: "local" (Island's own list) or "todoist".
     public var tasksSource = "local"
     /// Island looks for a newer version on GitHub now and then (at most about once a day) and says so in Settings.
@@ -55,6 +64,7 @@ public struct Settings: Codable, Equatable {
         case longBreakEvery, autoChain, launchAtLogin, tabOrder, hiddenTabs, cameraMirrored, lockSounds, ambientSound, ambientVolume
         case mediaInMinimalView, tasksSource, checkForUpdates, lastUpdateCheck
         case trackpadEnabled, trackpadActions, trackpadReversedEdges, trackpadEdgeMM, trackpadSensitivity
+        case trackpadTapsEnabled, trackpadTapActions, trackpadTapApps, trackpadTapShortcuts
     }
 
     /// Every key is optional, so a settings file written by an older Island (which had fewer keys) keeps the user's
@@ -93,6 +103,10 @@ public struct Settings: Codable, Equatable {
             try values.decodeIfPresent(Double.self, forKey: .trackpadEdgeMM) ?? trackpadEdgeMM, TrackpadDefaults.edgeMMRange)
         trackpadSensitivity = Self.clamp(
             try values.decodeIfPresent(Double.self, forKey: .trackpadSensitivity) ?? trackpadSensitivity, TrackpadDefaults.sensitivityRange)
+        trackpadTapsEnabled = try values.decodeIfPresent(Bool.self, forKey: .trackpadTapsEnabled) ?? trackpadTapsEnabled
+        trackpadTapActions = try values.decodeIfPresent([String: String].self, forKey: .trackpadTapActions) ?? trackpadTapActions
+        trackpadTapApps = try values.decodeIfPresent([String: String].self, forKey: .trackpadTapApps) ?? trackpadTapApps
+        trackpadTapShortcuts = try values.decodeIfPresent([String: String].self, forKey: .trackpadTapShortcuts) ?? trackpadTapShortcuts
     }
 
     /// What sliding along `edge` does: the saved choice, or the default for that edge.
@@ -105,6 +119,26 @@ public struct Settings: Codable, Equatable {
     /// The edges that do something (not "off").
     public var trackpadActiveEdges: Set<TrackpadEdge> {
         Set(TrackpadEdge.allCases.filter { trackpadAction(for: $0) != .off })
+    }
+
+    /// What this tap does: the saved choice, or nothing.
+    public func trackpadTapAction(for trigger: TrackpadTapTrigger) -> TrackpadTapAction {
+        trackpadTapActions[trigger.id].flatMap(TrackpadTapAction.init(rawValue:)) ?? .none
+    }
+
+    /// The app chosen for this tap (for the "open an app" action).
+    public func trackpadTapApp(for trigger: TrackpadTapTrigger) -> String? {
+        trackpadTapApps[trigger.id].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The Shortcut chosen for this tap (for the "run a Shortcut" action).
+    public func trackpadTapShortcut(for trigger: TrackpadTapTrigger) -> String? {
+        trackpadTapShortcuts[trigger.id].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The taps that do something right now: none while tapping is switched off.
+    public var trackpadWantedTaps: Set<TrackpadTapTrigger> {
+        trackpadTapsEnabled ? Set(TrackpadTapTrigger.all.filter { trackpadTapAction(for: $0) != .none }) : []
     }
 
     private static func clamp<T: Comparable>(_ value: T, _ range: ClosedRange<T>) -> T {

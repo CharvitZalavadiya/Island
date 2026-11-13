@@ -11,8 +11,8 @@ struct ToolsTab: View {
     let settings: SettingsStore
     /// The tool the pointer is over, so its name can be shown (the tiles are too small to carry one).
     @State private var hovered: ToolHint?
-    /// The Trackpad tool's settings, open as a card over the tab.
-    @State private var showsTrackpad = false
+    /// The tool whose settings are open as a card over the tab, if any.
+    @State private var popup: PopupTool?
 
     private static let playerWidth: CGFloat = 178
 
@@ -38,12 +38,12 @@ struct ToolsTab: View {
             }
         }
         .overlay {
-            if showsTrackpad {
-                TrackpadPopup(controller: trackpad, settings: settings) { showsTrackpad = false }
+            if let popup {
+                popupCard(for: popup)
                     .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.15), value: showsTrackpad)
+        .animation(.easeOut(duration: 0.15), value: popup)
         .foregroundStyle(.white)
         // Listens to what is playing only while this tab is on screen.
         .onAppear { nowPlaying.start() }
@@ -67,14 +67,41 @@ struct ToolsTab: View {
             ringFraction: controller.lockProgress, hovered: $hovered
         ) { controller.toggleKeyboardLock() }
 
-        let pad = ToolHint(
-            title: "Trackpad",
-            detail: trackpad.isEnabled ? "Edge gestures are on. Click to change them."
-                : "Slide along the trackpad's edge to change the volume or brightness. Click to set it up.")
-        ToolTile(
-            hint: pad, symbol: "rectangle.and.hand.point.up.left", tint: IslandTheme.trackpad,
-            ringFraction: nil, hovered: $hovered
-        ) { showsTrackpad = true }
+        // The tools that open a popup of settings (see `PopupTool`).
+        ForEach(PopupTool.allCases, id: \.self) { tool in
+            ToolTile(
+                hint: ToolHint(title: tool.title, detail: tool.detail(isOn: isOn(tool))), symbol: tool.symbol, tint: tool.tint,
+                ringFraction: nil, hovered: $hovered
+            ) { popup = tool }
+        }
+    }
+
+    private func isOn(_ tool: PopupTool) -> Bool {
+        switch tool {
+        case .trackpadSlide: trackpad.isEnabled
+        case .trackpadTaps: trackpad.isTapsEnabled
+        }
+    }
+
+    /// The card for a tool's settings: the same `ToolPopup` for every tool, with that tool's own settings inside it.
+    @ViewBuilder
+    private func popupCard(for tool: PopupTool) -> some View {
+        switch tool {
+        case .trackpadSlide:
+            ToolPopup(
+                title: tool.title, symbol: tool.symbol, tint: tool.tint,
+                isOn: Binding(get: { trackpad.isEnabled }, set: { trackpad.setEnabled($0) }), onClose: { popup = nil }
+            ) {
+                TrackpadSlideSettings(controller: trackpad, settings: settings)
+            }
+        case .trackpadTaps:
+            ToolPopup(
+                title: tool.title, symbol: tool.symbol, tint: tool.tint,
+                isOn: Binding(get: { trackpad.isTapsEnabled }, set: { trackpad.setTapsEnabled($0) }), onClose: { popup = nil }
+            ) {
+                TrackpadTapSettings(controller: trackpad, settings: settings)
+            }
+        }
     }
 
     // The area under the tiles: what the tools just did.
@@ -107,6 +134,46 @@ struct ToolsTab: View {
             .foregroundStyle(.white.opacity(0.65))
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The tools that open a popup of settings over the Tools tab, each with a tile of its own. To add one: add a case here, say what
+/// it is called, looks like and does in the properties, and build its settings inside a `ToolPopup` in `popupCard(for:)`.
+enum PopupTool: String, CaseIterable {
+    case trackpadSlide, trackpadTaps
+
+    var title: String {
+        switch self {
+        case .trackpadSlide: "Slide gestures"
+        case .trackpadTaps: "Tap gestures"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .trackpadSlide: "rectangle.and.hand.point.up.left"
+        case .trackpadTaps: "hand.tap"
+        }
+    }
+
+    /// Every tool has a colour of its own.
+    var tint: Color {
+        switch self {
+        case .trackpadSlide: IslandTheme.trackpadSlide
+        case .trackpadTaps: IslandTheme.trackpadTaps
+        }
+    }
+
+    /// What it does, shown when the pointer is over its tile.
+    func detail(isOn: Bool) -> String {
+        switch self {
+        case .trackpadSlide:
+            isOn ? "On. Slide a finger along the trackpad's edge to change volume or brightness. Click to change it."
+                : "Off. Click to set up sliding along the trackpad's edge for volume, brightness and skipping."
+        case .trackpadTaps:
+            isOn ? "On. Tap with three or four fingers, twice or three times. Click to choose what each tap does."
+                : "Off. Click to set up taps with three or four fingers: copy, paste, screenshot, open an app and more."
+        }
     }
 }
 

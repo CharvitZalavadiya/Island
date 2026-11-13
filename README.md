@@ -54,7 +54,7 @@ gear menu says when an update is waiting. Versions before 1.1.0 cannot update th
 | **GitHub** | Open a pull request in any repository, see yours and the ones waiting for your review, search any repository, review (approve, request changes, comment) |
 | **Teams** | *Experimental.* Your Microsoft Teams chats; needs an app you register in your own Microsoft Entra |
 | **Base64 & Cron** | Encode and decode, and explain a cron expression in words |
-| **Tools** | Now playing with controls, colour picker, a keyboard lock for cleaning, and trackpad edge gestures: slide one finger along an edge of the trackpad to change the volume or the brightness, or to skip through what is playing, with each edge set up in a popup (they are on from the start and can be switched off there; *experimental: it reads the trackpad through a macOS library that is not public*) |
+| **Tools** | Now playing with controls, colour picker, a keyboard lock for cleaning, and trackpad gestures (*experimental: the trackpad is read through a macOS library that is not public*): slide one finger along an edge to change the volume or the brightness or to skip through what is playing, and tap with three or four fingers, twice or three times, to copy, paste, take a screenshot, open an app, run a Shortcut (which can turn Do Not Disturb on or off), lock the screen, start the screen saver and more. Both are on from the start; each has its own tile in the tab (*Slide gestures*, *Tap gestures*) that opens its settings in a popup |
 | **Browser** | Tabs (down the side or along the top), bookmarks, ad blocking (YouTube included), tabs that sleep to save memory |
 
 ## Permissions and privacy

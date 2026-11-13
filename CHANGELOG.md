@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
 - **Trackpad edge gestures** (Tools tab). Slide one finger along an edge of the trackpad to change the volume or the
   brightness, or to skip through what is playing: the right edge does volume, the left edge brightness and the top edge

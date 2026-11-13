@@ -226,9 +226,9 @@ private struct Pad {
 
 // MARK: The settings
 
-@Test func trackpadGesturesAreOffByDefaultWithTheEdgesDoingTheUsualThings() {
+@Test func trackpadGesturesAreOnByDefaultWithTheEdgesDoingTheUsualThings() {
     let settings = Settings()
-    #expect(!settings.trackpadEnabled)
+    #expect(settings.trackpadEnabled)
     #expect(settings.trackpadAction(for: .right) == .volume && settings.trackpadAction(for: .left) == .brightness)
     #expect(settings.trackpadAction(for: .top) == .seek && settings.trackpadAction(for: .bottom) == .off)
     #expect(settings.trackpadActiveEdges == [.right, .left, .top])
@@ -238,21 +238,21 @@ private struct Pad {
 
 @Test func theChosenActionsAndDirectionsAreSavedAndAnUnknownOneFallsBackToTheDefault() throws {
     var settings = Settings()
-    settings.trackpadEnabled = true
+    settings.trackpadEnabled = false                                          // a person who switched them off keeps them off
     settings.trackpadActions = ["right": "brightness", "left": "volume", "bottom": "seek", "top": "nonsense"]
     settings.trackpadReversedEdges = ["left"]
     let data = try JSONEncoder().encode(settings)
     let back = try JSONDecoder().decode(Settings.self, from: data)
-    #expect(back == settings)
+    #expect(back == settings && !back.trackpadEnabled)
     #expect(back.trackpadAction(for: .right) == .brightness && back.trackpadAction(for: .left) == .volume)
     #expect(back.trackpadAction(for: .bottom) == .seek)
     #expect(back.trackpadAction(for: .top) == .seek)                         // "nonsense" means the default for the top edge
     #expect(back.trackpadIsReversed(.left) && !back.trackpadIsReversed(.right))
 }
 
-@Test func anOldSettingsFileHasTrackpadGesturesOffAndValuesOutOfRangeArePulledIn() throws {
+@Test func anOldSettingsFileGetsTrackpadGesturesSwitchedOnAndValuesOutOfRangeArePulledIn() throws {
     let old = try JSONDecoder().decode(Settings.self, from: Data(#"{"focusMinutes":40}"#.utf8))
-    #expect(!old.trackpadEnabled && old.focusMinutes == 40 && old.trackpadActiveEdges == [.right, .left, .top])
+    #expect(old.trackpadEnabled && old.focusMinutes == 40 && old.trackpadActiveEdges == [.right, .left, .top])
     let wild = try JSONDecoder().decode(Settings.self, from: Data(#"{"trackpadEdgeMM":500,"trackpadSensitivity":0}"#.utf8))
     #expect(wild.trackpadEdgeMM == 20 && wild.trackpadSensitivity == 0.4)
 }

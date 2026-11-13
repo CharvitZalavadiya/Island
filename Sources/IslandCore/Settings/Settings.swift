@@ -25,8 +25,9 @@ public struct Settings: Codable, Equatable {
     /// While music or a video plays, the minimal view (the wings beside the notch) shows the app's icon with the track's
     /// progress, and a little animated equalizer.
     public var mediaInMinimalView = true
-    /// Edge gestures on the trackpad (the Trackpad tab). Off until switched on: while one is going on the pointer is held still.
-    public var trackpadEnabled = false
+    /// Edge gestures on the trackpad (the Trackpad tool). On from the start, and the person can switch them off: while one is going
+    /// on the pointer is held still.
+    public var trackpadEnabled = true
     /// What sliding one finger along each edge does, by edge name ("left", "right", "top", "bottom") to action name ("off",
     /// "volume", "brightness", "seek"). An edge that is missing or has an unknown action keeps its default.
     public var trackpadActions: [String: String] = [:]

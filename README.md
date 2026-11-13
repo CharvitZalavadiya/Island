@@ -54,7 +54,7 @@ gear menu says when an update is waiting. Versions before 1.1.0 cannot update th
 | **GitHub** | Open a pull request in any repository, see yours and the ones waiting for your review, search any repository, review (approve, request changes, comment) |
 | **Teams** | *Experimental.* Your Microsoft Teams chats; needs an app you register in your own Microsoft Entra |
 | **Base64 & Cron** | Encode and decode, and explain a cron expression in words |
-| **Tools** | Now playing with controls, colour picker, a keyboard lock for cleaning, and trackpad edge gestures: slide one finger along an edge of the trackpad to change the volume or the brightness, or to skip through what is playing, with each edge set up in a popup (*experimental: it reads the trackpad through a macOS library that is not public*) |
+| **Tools** | Now playing with controls, colour picker, a keyboard lock for cleaning, and trackpad edge gestures: slide one finger along an edge of the trackpad to change the volume or the brightness, or to skip through what is playing, with each edge set up in a popup (they are on from the start and can be switched off there; *experimental: it reads the trackpad through a macOS library that is not public*) |
 | **Browser** | Tabs (down the side or along the top), bookmarks, ad blocking (YouTube included), tabs that sleep to save memory |
 
 ## Permissions and privacy

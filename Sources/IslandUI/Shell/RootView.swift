@@ -39,7 +39,7 @@ func tabView(for tab: IslandTab, services: IslandServices) -> some View {
     case .browser:
         BrowserTab(controller: services.browser)
     case .tools:
-        ToolsTab(controller: services.tools, nowPlaying: services.nowPlaying)
+        ToolsTab(controller: services.tools, nowPlaying: services.nowPlaying, trackpad: services.trackpad, settings: services.settings)
     }
 }
 

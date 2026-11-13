@@ -2,13 +2,17 @@ import SwiftUI
 import IslandCore
 
 /// The Tools tab: the player down the whole left side, and the tools as small square tiles beside it, the same size as a
-/// mascot tile in the Focus tab. Pick a colour from anywhere on the screen, and lock the keyboard for half a minute
-/// while it is wiped clean.
+/// mascot tile in the Focus tab. Pick a colour from anywhere on the screen, lock the keyboard for half a minute while it
+/// is wiped clean, and set up what sliding a finger along the trackpad's edges does.
 struct ToolsTab: View {
     @Bindable var controller: ToolsController
     let nowPlaying: NowPlayingController
+    let trackpad: TrackpadController
+    let settings: SettingsStore
     /// The tool the pointer is over, so its name can be shown (the tiles are too small to carry one).
     @State private var hovered: ToolHint?
+    /// The Trackpad tool's settings, open as a card over the tab.
+    @State private var showsTrackpad = false
 
     private static let playerWidth: CGFloat = 178
 
@@ -33,6 +37,13 @@ struct ToolsTab: View {
                 }
             }
         }
+        .overlay {
+            if showsTrackpad {
+                TrackpadPopup(controller: trackpad, settings: settings) { showsTrackpad = false }
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: showsTrackpad)
         .foregroundStyle(.white)
         // Listens to what is playing only while this tab is on screen.
         .onAppear { nowPlaying.start() }
@@ -55,6 +66,15 @@ struct ToolsTab: View {
             hint: clean, symbol: locked ? "lock.fill" : "keyboard", tint: IslandTheme.keepAwake,
             ringFraction: controller.lockProgress, hovered: $hovered
         ) { controller.toggleKeyboardLock() }
+
+        let pad = ToolHint(
+            title: "Trackpad",
+            detail: trackpad.isEnabled ? "Edge gestures are on. Click to change them."
+                : "Slide along the trackpad's edge to change the volume or brightness. Click to set it up.")
+        ToolTile(
+            hint: pad, symbol: "rectangle.and.hand.point.up.left", tint: IslandTheme.trackpad,
+            ringFraction: nil, hovered: $hovered
+        ) { showsTrackpad = true }
     }
 
     // The area under the tiles: what the tools just did.

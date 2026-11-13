@@ -39,6 +39,9 @@ enum IslandTheme {
     static let storageMid = Color(hex: 0xFB923C)
     static let storageHigh = Color(hex: 0xEF4444)
 
+    /// The Trackpad tab.
+    static let trackpad = Color(hex: 0xF0ABFC)
+
     static let accent = Color(hex: 0x22D3EE)
     static let accentSoft = accent.opacity(0.25)
     /// Saturday and Sunday in the calendar.

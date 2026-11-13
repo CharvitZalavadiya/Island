@@ -85,6 +85,20 @@ Read what the Mac is doing at any time with `pmset -g | grep SleepDisabled` (1 =
 - [ ] Right-click: Show in Finder and Unpin.
 - [ ] Move an app out of its folder: its tile dims and clicking explains.
 
+## Trackpad edge gestures (Tools tab)
+
+These need a real trackpad and your fingers, so they can only be checked by hand. Nothing here is on until the switch in the popup is on.
+
+- [ ] In the Tools tab, click the **Trackpad** tile: a card opens over the tab (the player is behind it) with a picture of the pad, and a close button at its top right. Closing it, or leaving the tab, closes it. Hovering the tile names it; its ring is full while the gestures are on.
+- [ ] With the card open, touch the pad: a dot shows where your finger is. Touch the right-hand edge at the top: the dot is at the top right (if it is upside down, the pad's up and down are the wrong way round and that needs fixing). The picture has the shape of your pad.
+- [ ] Switch the gestures on. Slide one finger up the right edge: the volume goes up with a small indicator under the notch, down when you slide down. The pointer stays where it was while you slide, and moves normally again the moment you lift.
+- [ ] The left edge does the same for the brightness of the built-in screen.
+- [ ] With a song or video playing in an app that allows moving through it, slide along the top edge: it skips ahead (right) or back (left), and lands where you let go. With nothing playing the indicator says so.
+- [ ] Moving the pointer normally still works everywhere, including from the very edge of the pad into the middle. Tapping and clicking on the edge still works. Two-finger scrolling near an edge does not change the volume.
+- [ ] Click another edge in the picture, give it another job (or Off), reverse its direction, change the width and the speed: each takes effect straight away and is still there after quitting and opening Island.
+- [ ] With the gestures on, quit Island in the middle of a slide (or switch them off): the pointer is free again.
+- [ ] If macOS asks for a permission the first time (Input Monitoring or Accessibility), note what it asked for: the card says so if the pad cannot be read.
+
 ## Settings
 
 - [ ] Hover-open off: the island then needs a click. The close delay changes how fast it closes.

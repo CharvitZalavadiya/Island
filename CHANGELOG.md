@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Trackpad edge gestures** (Tools tab). Slide one finger along an edge of the trackpad to change the volume or the
+  brightness, or to skip through what is playing: the right edge does volume, the left edge brightness and the top edge
+  skipping, to start with. Click the new *Trackpad* tool to choose what each edge does (or switch it off), turn its
+  direction round, and set how wide the edge is and how far a slide goes. It is off until you switch it on, and the
+  pointer stays where it was while you slide. *Experimental: it reads the trackpad through a macOS library that is not
+  public, so a future macOS may stop it working.*
+
 ## 1.2.0
 
 - **The system slider everywhere.** The volume bars in the Stats tab and the progress bar in the player were drawn by hand;

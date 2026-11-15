@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.0
 
 - **The changed files of a pull request, in Max and focus mode.** Open a pull request for review in the GitHub tab and, when the
   island is big, the files it changes are shown beside the review as on GitHub's *Files changed* tab: a list of the files

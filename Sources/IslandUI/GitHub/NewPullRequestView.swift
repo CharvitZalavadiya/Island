@@ -261,6 +261,9 @@ struct PickerList: View {
                     Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
                     // Takes the keyboard by itself as soon as the list opens; Escape closes the list.
                     SearchField(text: $query, placeholder: placeholder, onSubmit: submitTyped, onCancel: onDone)
+                    // The recent branches are looked at again each time this list opens, so one pushed a moment ago is in it; what
+                    // is typed is searched on GitHub after the typing pauses. The spinner shows either is under way.
+                    if controller.branchesLoading || controller.branchSearching, isBranchList { ProgressView().controlSize(.mini) }
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 30)
@@ -278,6 +281,16 @@ struct PickerList: View {
                 }
             }
             .scrollIndicators(.hidden)
+        }
+        .task {
+            if isBranchList { await controller.refreshBranches() }
+        }
+        .onChange(of: query) { _, new in
+            if isBranchList { controller.branchQueryChanged(new) }
+        }
+        // Closing the list ends a search that is waiting, and forgets what it found.
+        .onDisappear {
+            if isBranchList { controller.endBranchSearch() }
         }
         // A pull request link pasted while searching opens that pull request at once; one typed by hand waits for Return
         // (it would otherwise open "#1" on the way to "#123"). A paste is told from typing by how much arrives at once.
@@ -316,6 +329,7 @@ struct PickerList: View {
     }
 
     private var isSearching: Bool { kind == .searchRepository }
+    private var isBranchList: Bool { kind == .base || kind == .head }
 
     /// A repository typed in: looked up on GitHub and chosen (for the form, or for searching).
     private func lookUpTypedRepository() {
@@ -358,7 +372,8 @@ struct PickerList: View {
 
     @ViewBuilder
     private func branchRows(asHead: Bool) -> some View {
-        let names = controller.branches(matching: query, excludingBase: asHead)
+        // "Merge from": the branch you want is the one you pushed last, so the newest come first. "Into": the default branch first.
+        let names = controller.branches(matching: query, excludingBase: asHead, recentFirst: asHead)
         let typed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if !typed.isEmpty, !names.contains(where: { $0.name == typed }) {
             row(title: "Use “\(typed)”", subtitle: "Check it exists on GitHub", symbol: "magnifyingglass", highlighted: true) {
@@ -366,22 +381,44 @@ struct PickerList: View {
                 onDone()
             }
         }
-        if controller.branchesLoading && names.isEmpty {
+        if (controller.branchesLoading || controller.branchSearching) && names.isEmpty {
             ProgressView().controlSize(.small).padding(.top, 20)
+        } else if controller.branchesFailed && names.isEmpty {
+            // Not "no branches": the list never arrived, and typing a name still works while it did not.
+            VStack(spacing: 8) {
+                note("Couldn't load this repository's branches.")
+                PillButton(title: "Try again", height: 28) { Task { await controller.refreshBranches() } }
+            }
+        } else if controller.branchSearchFailed && names.isEmpty {
+            VStack(spacing: 8) {
+                note("Couldn't search this repository's branches.")
+                PillButton(title: "Try again", height: 28) { controller.branchQueryChanged(query) }
+            }
         } else if names.isEmpty && typed.isEmpty {
             note("This repository has no other branches.")
+        } else if names.isEmpty {
+            note("No branch has “\(typed)” in its name.")
         }
         ForEach(names, id: \.name) { branch in
             row(
-                title: branch.name, subtitle: badge(for: branch), symbol: "arrow.triangle.branch",
+                title: branch.name, subtitle: subtitle(for: branch, asHead: asHead), symbol: "arrow.triangle.branch",
                 highlighted: (asHead ? controller.head : controller.base) == branch.name
             ) { choose(branch.name) }
         }
+        // Only the recent ones are listed; say how to reach the others.
+        if typed.isEmpty, controller.branches.count >= GitHubController.recentBranchLimit {
+            note("The \(GitHubController.recentBranchLimit) most recently pushed branches. Type to search all of them.")
+        }
     }
 
-    private func badge(for branch: GitHubBranch) -> String? {
-        if branch.name == controller.repo?.defaultBranch { return "default branch" }
-        return branch.isProtected ? "protected" : nil
+    /// What is worth knowing about a branch beside its name: that it is the default, when it was last pushed to (for the
+    /// "merge from" list, which is ordered by that), and that it is protected.
+    private func subtitle(for branch: GitHubBranch, asHead: Bool) -> String? {
+        var parts: [String] = []
+        if branch.name == controller.repo?.defaultBranch { parts.append("default branch") }
+        if asHead, let pushed = branch.lastPushed { parts.append("pushed " + pushed.formatted(.relative(presentation: .named))) }
+        if branch.isProtected { parts.append("protected") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private func choose(_ name: String) {

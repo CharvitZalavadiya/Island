@@ -2,29 +2,24 @@
 
 ## Unreleased
 
-- **Keyboard shortcuts in the island.** With the island open and clicked once (a click gives it the keyboard; hovering never
-  does, so it cannot take your typing), **F** opens focus mode and leaves it, **M** switches between the usual size and Max,
-  **P** pins or unpins, and **⌘,** opens Settings. The letters only count while you are not typing into a text box or a web page,
-  and not with ⌘, ⌥, ⌃ or ⇧ held. The keyboard goes back to the app you were working in when the island closes or focus mode
-  ends.
-- **Local builds keep their permissions.** `scripts/build-app.sh` now signs every build with the same Apple Development
-  certificate (remembered in `build/.signing-identity`, signed by its hash) instead of "whichever is listed first", says out
-  loud when it has to change it (macOS asks for calendar, camera and folder permissions again for a new identity), and says
-  when another copy of Island, such as the one in /Applications, is signed differently: macOS keeps one set of permissions for
-  both, so whichever you open second asks again.
-- **Focus mode.** A new button in the tab bar (the card icon, next to Max) blurs and dims everything else on the screen and
-  shows the island as a big rounded card in the middle of it, 95% of the screen wide and hanging clear below the notch (with a
-  small gap, so the two never run together). Press **Esc** or click anywhere outside the card to leave, and the island is
-  exactly as it was before: closed, open, pinned or Max. Leaving Island for another app (⌘Tab) also ends it, and the keyboard
-  goes back to the app you were working in. Max and Pin are not shown while it is on. The tab bar is a point tighter to make
-  room for the new button.
-- **Dialogs come to the front.** The app chooser for tap gestures and a web page's alerts and file chooser in the Browser tab
-  now open above the island, so a big island (Max or Focus mode) can never hide one.
-- **Tap and hold is quicker.** Three or four fingers held still now run their action after one second, not a second and a half.
-- **Full screen on or off** (Tools tab, *Tap gestures*). A new action for any tap or hold: it puts the app you are working in
-  into full screen, and the same tap brings it back out. It uses the window's own full-screen setting (what the green button
-  does), so it works in any app that has one. Like Copy and Paste it needs Island to be allowed in Accessibility (macOS asks
-  once); without it the indicator says so, and a window that cannot go full screen is left alone.
+- **The changed files of a pull request, in Max and focus mode.** Open a pull request for review in the GitHub tab and, when the
+  island is big, the files it changes are shown beside the review as on GitHub's *Files changed* tab: a list of the files
+  (added, modified, deleted, renamed, with their +/− counts), and under it every file's changes one below another with the line
+  numbers before and after, additions in green and removals in red, hunk headers, and the file's name bar staying at the top
+  while it scrolls. A click on a file goes to it, a click on its name bar folds it, and *Fold all* folds them all. A renamed
+  file shows its old and new name; a binary or very large file says that GitHub does not send its changes. The usual small
+  island is unchanged (with a hint where to see the files), and nothing is asked of GitHub for them there. A box above the
+  file list filters by name: type part of a file's name or folder (several words must all match, capitals do not matter, a
+  renamed file also matches by its old name) and only those files stay in the list and below it; clearing the box, or its
+  cross, shows every file again.
+- **Finding the branch to open a pull request from.** The branch list was loaded once, when you chose the repository, so a
+  branch pushed afterwards was not in it, and it came alphabetically, so a fresh one sat somewhere in the middle (and a
+  repository with more than 500 branches lost everything after some letter). Now the *merge from* and *into* lists open with
+  the 20 most recently pushed branches (newest first, with how long ago each was pushed, and the default branch always
+  there), looked at again each time you open the list so one pushed a moment ago is in it. Any other branch is found by
+  typing: after a one-second pause in the typing, GitHub is asked for the branches whose names contain what you typed (any
+  capitals), so every branch is reachable without loading them all. When the list or the search cannot be loaded it says so
+  and offers *Try again*, instead of "no other branches".
 
 ## 1.3.1
 

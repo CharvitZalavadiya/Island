@@ -5,28 +5,80 @@ import IslandCore
 /// The review panel for one pull request (usually a colleague's): what it is, where you and the others stand on it, a box
 /// for a comment, and Approve, Request changes and Comment. Approving and asking for changes speak for you to the whole
 /// team, so they take two presses: the first turns the button into "Sure?" and the second (within a few seconds) sends.
+///
+/// When the island is big (Max or focus mode) the changed files are shown too, beside the review, as on GitHub's "Files changed".
 struct PullRequestReviewView: View {
     @Bindable var controller: GitHubController
 
+    /// From this width the changed files are shown beside the review. The usual island's panel is about 556 wide, Max and focus
+    /// mode are well over a thousand on most screens.
+    static let sideBySideWidth: CGFloat = 780
+
     var body: some View {
         if let target = controller.reviewTarget {
-            VStack(spacing: 8) {
-                header(target)
-                // What there is to read scrolls; the actions below it never do.
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
-                        chips(target)
-                        standing
-                        outcome
-                        if let reason = controller.reviewBlockReason { note(reason, color: IslandTheme.keepAwake) }
-                        commentBox
-                        description
-                    }
+            GeometryReader { proxy in
+                Group {
+                    if proxy.size.width >= Self.sideBySideWidth { wide(target) } else { narrow(target) }
                 }
-                .scrollIndicators(.hidden)
-                actions(target)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
             }
         }
+    }
+
+    /// The usual island: everything in one column, as it always was.
+    private func narrow(_ target: GitHubPullRequest) -> some View {
+        VStack(spacing: 8) {
+            header(target)
+            // What there is to read scrolls; the actions below it never do.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    chips(target)
+                    filesHint
+                    reviewColumn
+                }
+            }
+            .scrollIndicators(.hidden)
+            actions(target)
+        }
+    }
+
+    /// Max and focus mode: the review in a narrow column on the left, the changed files taking the rest.
+    private func wide(_ target: GitHubPullRequest) -> some View {
+        VStack(spacing: 8) {
+            header(target)
+            chips(target)
+            HStack(alignment: .top, spacing: 14) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) { reviewColumn }
+                }
+                .scrollIndicators(.hidden)
+                .frame(width: 300)
+                PullRequestFilesView(controller: controller)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            actions(target)
+        }
+    }
+
+    /// Where everyone stands, the box for a comment and the description.
+    @ViewBuilder
+    private var reviewColumn: some View {
+        standing
+        outcome
+        if let reason = controller.reviewBlockReason { note(reason, color: IslandTheme.keepAwake) }
+        commentBox
+        description
+    }
+
+    /// The changed files do not fit the usual island: say where to see them.
+    private var filesHint: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "rectangle.split.2x1")
+            Text("Open Max or focus mode to read the changed files here.")
+        }
+        .font(.system(size: 10.5))
+        .foregroundStyle(.white.opacity(0.4))
+        .padding(.horizontal, 4)
     }
 
     // MARK: The top

@@ -2,8 +2,10 @@
 # Builds build/Island.app from the Swift package.
 #
 #   ISLAND_UNIVERSAL=1        build for Apple Silicon AND Intel Macs (a release does); default: Apple Silicon only, which is quicker
-#   ISLAND_SIGN_IDENTITY=...  who signs it ("-" for ad-hoc). Default: your Apple Development identity if there is one (it keeps
-#                             macOS permissions across rebuilds on your own Mac), else ad-hoc.
+#   ISLAND_SIGN_IDENTITY=...  who signs it ("-" for ad-hoc). Default: your Apple Development identity if there is one, else ad-hoc.
+#                             The identity is remembered (build/.signing-identity) and used every time, because macOS keeps the
+#                             permissions you gave the app (calendar, camera, folders...) only for builds signed by the same one;
+#                             see scripts/signing-identity.sh.
 #   ISLAND_HARDENED=1         sign with the hardened runtime and Packaging/Island.entitlements (needed to notarize; only
 #                             useful with a "Developer ID Application" identity)
 set -euo pipefail
@@ -57,12 +59,21 @@ clang -dynamiclib -fobjc-arc -Wall "${CLANG_ARCHS[@]}" -framework Foundation \
     Packaging/NowPlayingAdapter.m -o "$APP/Contents/Resources/NowPlayingAdapter.dylib"
 
 ID="${ISLAND_SIGN_IDENTITY:-}"
+SHOWN_ID="$ID"
 if [ -z "$ID" ]; then
-    ID="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development:[^"]*\)".*/\1/p' | head -1)"
+    # The same identity every time, even with several certificates in the keychain: a different one makes macOS ask again.
+    CHOSEN="$(security find-identity -v -p codesigning 2>/dev/null | scripts/signing-identity.sh build/.signing-identity || true)"
+    if [ -n "$CHOSEN" ]; then
+        ID="${CHOSEN%%$'\t'*}"            # signing by the certificate's hash is exact, even if two certificates share a name
+        SHOWN_ID="${CHOSEN#*$'\t'}"
+    fi
 fi
 if [ -z "$ID" ]; then
-    echo "warning: no signing identity found; signing ad-hoc (macOS permissions may reset after rebuilds)" >&2
+    echo "warning: no signing identity found, so the app is signed ad hoc. macOS then treats every build as a new app and asks for" >&2
+    echo "         the calendar, camera and folder permissions again each time. A free Apple Development certificate fixes that" >&2
+    echo "         (Xcode > Settings > Accounts > Manage Certificates > +)." >&2
     ID="-"
+    SHOWN_ID="ad hoc"
 fi
 
 SIGN=(--force --sign "$ID")
@@ -71,4 +82,21 @@ if [ "${ISLAND_HARDENED:-0}" = "1" ]; then
 fi
 codesign "${SIGN[@]}" "$APP/Contents/Resources/NowPlayingAdapter.dylib"
 codesign "${SIGN[@]}" "$APP"
-echo "Built $APP (signed with: $ID)"
+
+# macOS keeps ONE set of permissions per app id. A second copy with the same id signed differently (an installed release is signed
+# ad hoc, a build made here is signed by you) shares that one set: whichever is opened second asks for everything again.
+note_other_copies() {
+    local mine other theirs
+    mine="$(codesign -d -r- "$APP" 2>&1 | sed -n 's/^#* *designated => //p' || true)"
+    for other in /Applications/Island.app "$HOME/Applications/Island.app"; do
+        [ -d "$other" ] || continue
+        theirs="$(codesign -d -r- "$other" 2>&1 | sed -n 's/^#* *designated => //p' || true)"
+        if [ "$mine" != "$theirs" ]; then
+            echo "note: $other is signed differently from this build. macOS keeps one set of permissions for both, so whichever" >&2
+            echo "      you open second asks for them again. Use one copy only, or replace that one with this build." >&2
+        fi
+    done
+}
+note_other_copies
+
+echo "Built $APP (signed with: $SHOWN_ID)"

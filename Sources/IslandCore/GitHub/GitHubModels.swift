@@ -94,10 +94,13 @@ public struct GitHubRepoRef: Equatable, Hashable, Sendable {
 public struct GitHubBranch: Equatable, Hashable, Sendable {
     public var name: String
     public var isProtected: Bool
+    /// When it was last pushed to, if GitHub's recent activity says (it only remembers the recent past).
+    public var lastPushed: Date?
 
-    public init(name: String, isProtected: Bool = false) {
+    public init(name: String, isProtected: Bool = false, lastPushed: Date? = nil) {
         self.name = name
         self.isProtected = isProtected
+        self.lastPushed = lastPushed
     }
 }
 

@@ -7,7 +7,10 @@ protocol GitHubAPI: Sendable {
     /// The repositories the account can reach, most recently pushed first.
     func repos(token: String) async throws -> [GitHubRepo]
     func repo(token: String, _ ref: GitHubRepoRef) async throws -> GitHubRepo
-    func branches(token: String, _ repo: GitHubRepoRef) async throws -> [GitHubBranch]
+    /// The `limit` branches pushed to most recently, newest first (what the branch lists open with; the rest are found by searching).
+    func recentBranches(token: String, _ repo: GitHubRepoRef, limit: Int) async throws -> [GitHubBranch]
+    /// The branches whose names contain `text`, alphabetically: GitHub's own branch search, for a branch the recent ones lack.
+    func searchBranches(token: String, _ repo: GitHubRepoRef, matching text: String) async throws -> [GitHubBranch]
     /// One branch by name (throws `notFound` if there is none), for a branch typed in that the list did not show.
     func branch(token: String, _ repo: GitHubRepoRef, name: String) async throws -> GitHubBranch
     func compare(token: String, _ repo: GitHubRepoRef, base: String, head: String) async throws -> GitHubComparison
@@ -28,13 +31,27 @@ protocol GitHubAPI: Sendable {
     func pullRequestDetails(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> GitHubPullRequestDetails
     /// Sends a review (an approval, a request for changes or a comment) in the person's name.
     func submitReview(token: String, _ repo: GitHubRepoRef, number: Int, event: GitHubReviewEvent, body: String) async throws -> GitHubReview
+    /// The files a pull request changes, with the changes themselves (the "Files changed" tab).
+    func pullRequestFiles(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> [GitHubChangedFile]
+}
+
+extension GitHubAPI {
+    // Stand-ins that do not care about these two need not write them.
+    func recentBranches(token: String, _ repo: GitHubRepoRef, limit: Int) async throws -> [GitHubBranch] { [] }
+    func searchBranches(token: String, _ repo: GitHubRepoRef, matching text: String) async throws -> [GitHubBranch] { [] }
+    func pullRequestFiles(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> [GitHubChangedFile] { [] }
 }
 
 /// GitHub over the internet. It uses an ephemeral session, so nothing about a person's repositories is cached on disk.
 final class URLSessionGitHubAPI: GitHubAPI, @unchecked Sendable {
     private let session: URLSession
-    /// The most pages a list is followed through (100 each): 500 repositories or branches is far more than anyone scrolls.
+    /// The most pages a list is followed through (100 each): 500 repositories is far more than anyone scrolls.
     private let maxPages = 5
+    /// The activity list is read a page (100 entries) at a time until enough branches turn up; a repository where one branch
+    /// took all the pushes would otherwise be read for ever.
+    private let maxActivityPages = 3
+    /// GitHub itself stops a pull request's file list at 3000 files.
+    private let maxFilePages = 30
 
     /// Where GitHub looks for a pull request template.
     static let templatePaths = [
@@ -61,10 +78,50 @@ final class URLSessionGitHubAPI: GitHubAPI, @unchecked Sendable {
         try GitHubDecoding.repo(from: try await send(GitHubRequests.repo(token: token, ref)).data)
     }
 
-    func branches(token: String, _ repo: GitHubRepoRef) async throws -> [GitHubBranch] {
-        try await allPages { page in
-            let (data, next) = try await self.send(GitHubRequests.branches(token: token, repo, page: page))
-            return GitHubPage(items: try GitHubDecoding.branches(from: data), nextPage: next)
+    /// The most recently pushed branches come from the repository's activity list (the branch list itself is alphabetical and has no
+    /// dates). If that list cannot be used for a reason that is not about the person, or has too few branches in it (a young or
+    /// quiet repository), the first page of the plain branch list fills the rest, so there is always something to choose from.
+    func recentBranches(token: String, _ repo: GitHubRepoRef, limit: Int) async throws -> [GitHubBranch] {
+        var recent = GitHubRecentBranches(limit: limit)
+        do {
+            var page = 1
+            for _ in 0..<maxActivityPages {
+                let (data, next) = try await send(GitHubRequests.branchActivity(token: token, repo, page: page))
+                recent.add(try GitHubDecoding.branchActivity(from: data))
+                guard !recent.isFull, let next else { break }
+                page = next
+            }
+        } catch let error as GitHubError {
+            switch error {
+            case .unauthorized, .sso, .rateLimited, .network: throw error
+            case .forbidden, .notFound, .validation, .server, .unreadable: break
+            }
+        }
+        var branches = recent.branches
+        guard branches.count < limit else { return branches }
+        do {
+            let (data, _) = try await send(GitHubRequests.branches(token: token, repo, page: 1))
+            for listed in try GitHubDecoding.branches(from: data) where branches.count < limit {
+                if let index = branches.firstIndex(where: { $0.name == listed.name }) {
+                    branches[index].isProtected = listed.isProtected
+                } else {
+                    branches.append(listed)
+                }
+            }
+        } catch {
+            if branches.isEmpty { throw error }     // nothing at all to show: that is a failure; a few without the filling are not
+        }
+        return branches
+    }
+
+    func searchBranches(token: String, _ repo: GitHubRepoRef, matching text: String) async throws -> [GitHubBranch] {
+        try GitHubDecoding.branches(fromGraphQLSearch: try await send(GitHubRequests.searchBranches(token: token, repo, matching: text)).data)
+    }
+
+    func pullRequestFiles(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> [GitHubChangedFile] {
+        try await allPages(limit: maxFilePages) { page in
+            let (data, next) = try await self.send(GitHubRequests.pullRequestFiles(token: token, repo, number: number, page: page))
+            return GitHubPage(items: try GitHubDecoding.changedFiles(from: data), nextPage: next)
         }
     }
 
@@ -170,10 +227,10 @@ final class URLSessionGitHubAPI: GitHubAPI, @unchecked Sendable {
 
     // MARK: Internals
 
-    private func allPages<Element: Sendable>(_ fetch: (Int) async throws -> GitHubPage<Element>) async throws -> [Element] {
+    private func allPages<Element: Sendable>(limit: Int? = nil, _ fetch: (Int) async throws -> GitHubPage<Element>) async throws -> [Element] {
         var all: [Element] = []
         var page = 1
-        for _ in 0..<maxPages {
+        for _ in 0..<(limit ?? maxPages) {
             let result = try await fetch(page)
             all += result.items
             guard let next = result.nextPage else { break }

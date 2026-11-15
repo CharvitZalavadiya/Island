@@ -29,6 +29,36 @@ public enum GitHubRequests {
         get("/repos/\(repo.owner)/\(repo.name)/branches", token: token, query: [("per_page", "100"), ("page", String(page))])
     }
 
+    /// The repository's recent activity, newest first, 100 entries to a page: which branches were pushed to lately, and which were
+    /// deleted. The branch list itself has no dates and comes alphabetically, so it cannot say which branches are the recent ones.
+    public static func branchActivity(token: String, _ repo: GitHubRepoRef, page: Int = 1) -> URLRequest {
+        get("/repos/\(repo.owner)/\(repo.name)/activity", token: token, query: [("per_page", "100"), ("page", String(page))])
+    }
+
+    /// The branches whose names contain `text` (any capitals), alphabetically: GitHub's own branch search, which finds a branch
+    /// among thousands without loading them.
+    public static func searchBranches(token: String, _ repo: GitHubRepoRef, matching text: String, limit: Int = 30) -> URLRequest {
+        graphQL(token: token, query: branchSearchQuery, variables: ["owner": repo.owner, "name": repo.name, "query": text, "first": limit])
+    }
+
+    /// (Checked against GitHub's published GraphQL schema: `refs` takes `refPrefix`, `query`, `first` and `orderBy`, and
+    /// `RefOrderField` has `ALPHABETICAL`; and against the live API on a public repository, where `query` matched anywhere in the
+    /// name without regard to capitals.)
+    public static let branchSearchQuery = """
+        query BranchSearch($owner: String!, $name: String!, $query: String!, $first: Int!) {
+          repository(owner: $owner, name: $name) {
+            refs(refPrefix: "refs/heads/", query: $query, first: $first, orderBy: {field: ALPHABETICAL, direction: ASC}) {
+              nodes { name }
+            }
+          }
+        }
+        """
+
+    /// The files a pull request changes, with the changes themselves (the "Files changed" tab), 100 to a page.
+    public static func pullRequestFiles(token: String, _ repo: GitHubRepoRef, number: Int, page: Int = 1) -> URLRequest {
+        get("/repos/\(repo.owner)/\(repo.name)/pulls/\(number)/files", token: token, query: [("per_page", "100"), ("page", String(page))])
+    }
+
     public static func branch(token: String, _ repo: GitHubRepoRef, name: String) -> URLRequest {
         get("/repos/\(repo.owner)/\(repo.name)/branches/\(escaped(name))", token: token)
     }

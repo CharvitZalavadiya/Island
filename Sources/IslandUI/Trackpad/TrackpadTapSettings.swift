@@ -25,7 +25,7 @@ private struct TapsPage: View {
     @State private var flashed: TrackpadTapTrigger?
 
     private static let groups: [[TrackpadTapAction]] = [
-        [.none], [.copy, .paste], [.screenshot, .missionControl, .openApp, .shortcut],
+        [.none], [.copy, .paste], [.screenshot, .missionControl, .fullScreen, .openApp, .shortcut],
         [.lockScreen, .screenSaver, .displaySleep], [.mute, .playPause],
     ]
 
@@ -151,9 +151,9 @@ private struct TapsPage: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
             }
-        case .copy, .paste:
+        case .copy, .paste, .fullScreen:
             if controller.hasAccessibility {
-                Label("Island is allowed to press keys", systemImage: "checkmark.circle.fill")
+                Label("Island is allowed in Accessibility", systemImage: "checkmark.circle.fill")
                     .font(.system(size: 11)).foregroundStyle(IslandTheme.tasks)
             } else {
                 Button { controller.requestAccessibility() } label: {
@@ -183,6 +183,7 @@ private struct TapsPage: View {
         case .paste: "Presses ⌘V in the app you are using. macOS asks you to allow this once."
         case .screenshot: "Opens the screenshot tools (the same as ⇧⌘5)."
         case .missionControl: "Shows all your windows and spaces."
+        case .fullScreen: "Puts the app you are using in full screen. Do it again to bring it back. macOS asks you to allow this once."
         case .openApp: "Opens the app, or brings it to the front."
         case .shortcut: "Runs one of your Shortcuts. A Shortcut with “Set Focus” turns Do Not Disturb on or off."
         case .lockScreen: "Locks the screen at once."
@@ -201,6 +202,7 @@ private struct TapsPage: View {
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
+        panel.level = IslandWindowLevel.dialog              // above the island, which may be a big card in focus mode
         NSApp.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK, let url = panel.url { controller.setTapApp(url.path, for: selected) }
     }

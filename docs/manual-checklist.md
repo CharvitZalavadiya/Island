@@ -85,6 +85,44 @@ Read what the Mac is doing at any time with `pmset -g | grep SleepDisabled` (1 =
 - [ ] Right-click: Show in Finder and Unpin.
 - [ ] Move an app out of its folder: its tile dims and clicking explains.
 
+## Focus mode
+
+- [ ] Open the island and click the **card button** (next to Max). Everything else on the screen blurs and dims, and the island becomes a big black card in the middle of the screen (95% of the width, as tall as fits below the notch), with a visible gap of blurred background between the notch and the top of the card: they must not run together. On a display without a notch the card sits just below the menu bar. The tabs work in it as usual (try the Tools and Browser tabs, and typing in a text box).
+- [ ] Press **Esc**: the blur goes, and the island is back as it was (if you had it open it is open, then closes by itself when the pointer is away; if it was pinned or Max it still is). The app you were working in has the keyboard again: type a letter and it lands there.
+- [ ] Do it again and click on the blur outside the card (top, bottom, a corner): same result, and the click does not reach the app underneath (nothing there is clicked or selected).
+- [ ] Press **⌘Tab** to another app while it is on: focus mode ends and that app keeps the keyboard.
+- [ ] Try it while an app is in full screen (its own space): the blur and the card appear over it, and Esc brings you back to it. Try it with a second display plugged in: only the island's own display is blurred.
+- [ ] In focus mode, Tools ▸ Tap gestures ▸ choose an app: the file chooser opens in front of the card. In the Browser tab a page's alert (any site that shows one) also appears in front. The gear menu ▸ Settings… ends focus mode and opens Settings.
+- [ ] Max and Pin are not shown in focus mode; the card button is highlighted, and clicking it leaves too. Esc inside a text box leaves focus mode as well (that is on purpose).
+
+## GitHub: changed files and branches
+
+- [ ] In the GitHub tab open a pull request for review (My PRs or Reviews, or a link pasted into Search) at the usual island size: the review looks as before, with one extra line saying to open Max or focus mode to read the changed files.
+- [ ] Switch to **Max** (arrows button) with the review still open: the review moves into a narrow column on the left and the changed files appear beside it: a file list (letters A, M, D, R for added, modified, deleted, renamed, with +/− counts) and every file's changes under each other. Compare one file with the same pull request's *Files changed* tab on github.com: the same lines, the same added and removed ones, the same line numbers.
+- [ ] Open a pull request with several files and check that EVERY file shows its changes under its name bar (an empty box under a name bar is a bug, not a short file).
+- [ ] Click the *Filter files by name* box above the list (it does not take the keyboard until you click it) and type part of a file's name or folder: only the matching files stay, in the list and below it, and the top line says "showing N". Capitals do not matter; two words must both match; a renamed file is found by its old name too. Type something no file has: it says so and offers *Show all files*. Clear the box (or press its cross): every file is back. The island's letter shortcuts (F, M, P) do not fire while you type there.
+- [ ] Click a file in the list: the changes scroll to it. Click a file's name bar: it folds. *Fold all* and *Unfold all* work. The name bar stays at the top while that file's lines scroll under it. Long lines wrap; you can select and copy text from the diff.
+- [ ] Open a pull request that renames a file, one with an image or other binary file, and (if you can find one) one with a very large generated file: each says what it is (renamed, or that GitHub does not send the changes) instead of showing an empty box. A pull request with more than a hundred files lists them all.
+- [ ] Try **focus mode** (card button) on the same review: the same view, bigger. Leaving Max or focus mode with the review open goes back to the single column and nothing is lost (your comment is still in its box).
+- [ ] New PR: choose a repository, push a new branch to it from a terminal (`git push -u origin my-new-branch`), then open the *merge from* list in the island: the new branch is there (a small spinner shows while it looks) and it is the first one in the list, with "pushed a few seconds ago". Open it again after another push: still there, without choosing the repository again.
+- [ ] The *merge from* list shows at most the 20 most recently pushed branches, newest first, and (when there are that many) a line saying to type to search all of them. The *into* list starts with the default branch, and the default branch is there even when it was not pushed to lately. A branch that was merged and deleted is not in either list.
+- [ ] In *merge from*, type part of the name of an OLD branch (one that is not among the 20): the recent ones that match are filtered at once, a small spinner shows, and about a second after you stop typing the old branch appears in the list. Keep typing quickly: nothing is asked until you pause. Capitals do not matter, and a word from the middle of the name finds it. Choose it: it works like any other, and shows (marked) the next time you open the list.
+- [ ] Type something no branch has: it says no branch has that in its name. Clear the box: the 20 recent ones come back at once. Close the list while a search is waiting: nothing is asked.
+- [ ] Switch your Wi-Fi off, choose a repository, then open the branch list: it says it could not load the branches and offers *Try again* (not "no other branches"); switch Wi-Fi on and press it. Do the same while typing a name: it says it could not search, with *Try again*.
+
+## Keyboard shortcuts
+
+- [ ] Open the island and press **F** without clicking it: nothing happens in Island (your keys still go to the app you are in; that is on purpose, so hovering the notch never steals your typing). Now **click** anywhere on the open island and press **F**: focus mode opens. Press **F** again: it leaves.
+- [ ] Click the island, press **M**: the island switches to Max and back with the next **M**. **P** pins it (the pin icon fills) and unpins. **⌘,** opens Settings (from focus mode too: focus mode ends first).
+- [ ] Click into a text box in the island (a task, the clipboard search, the browser's address bar) and type the word "map frog": no shortcut fires, the letters are typed. **⌘,** still opens Settings from inside a text box. In the Browser tab, click into the page and type: the letters go to the page.
+- [ ] Click the island, then move the pointer away and wait for it to close: your other app has the keyboard again (type a letter and it lands there, with no click needed). Do the same with Settings open and in front: the island closing must not pull the keyboard away from the Settings window.
+- [ ] M and P do nothing in focus mode (the buttons are not there). Holding F down toggles only once.
+
+## Permissions across rebuilds
+
+- [ ] Quit Island, run `scripts/build-app.sh` and open the new build: the line at the end says which certificate signed it, and macOS does not ask again for Calendar, Camera or folders you already allowed. Do it a second time: the same certificate again, no new questions.
+- [ ] With another copy in /Applications that is signed differently, the script prints the note about it. Open both in turn to see the repeated questions the note warns about; then keep one copy only.
+
 ## Slide gestures (Tools tab)
 
 These need a real trackpad and your fingers, so they can only be checked by hand. The gestures are on from the start; the switch in the popup turns them off.
@@ -105,9 +143,10 @@ Taps are on from the start, with nothing assigned. These need a real trackpad an
 
 - [ ] Click the blue **Tap gestures** tile (it has its own popup and its own on/off switch, apart from Slide gestures): four cards (three fingers and four fingers, double tap and triple tap) each say "Not set". With the popup open, tap the pad with three fingers twice: the "Three fingers, double tap" card lights up (after a moment, because a triple tap is also possible) and is selected, and nothing else happens. Do the same for the other three.
 - [ ] Choose **Take a screenshot** for the three-finger double tap, close the popup, and tap with three fingers twice: the screenshot tools open. A single three-finger tap, a two-finger tap, a four-finger tap, three-finger swipes and normal clicking do nothing.
-- [ ] Tap and hold: choose an action for **Three fingers, tap and hold** (the third card on the top row), put three fingers down together and keep them still. After about a second and a half the action runs while your fingers are still down, and only once however long you hold. Lifting early, moving the fingers, putting them down one after another, or using two or five fingers does nothing. Do the same with four fingers on the bottom row. With the popup open, a hold selects its card even if nothing is set for it.
+- [ ] Tap and hold: choose an action for **Three fingers, tap and hold** (the third card on the top row), put three fingers down together and keep them still. After about a second the action runs while your fingers are still down, and only once however long you hold. Lifting early, moving the fingers, putting them down one after another, or using two or five fingers does nothing. Do the same with four fingers on the bottom row. With the popup open, a hold selects its card even if nothing is set for it.
 - [ ] Give the triple tap another job: the double tap now waits a third of a second to see if a third tap comes, and a triple tap does only the triple tap's job.
 - [ ] Each action, once: Take a screenshot (the screenshot tools open), Mission Control, Open an app (Choose an app… and pick one; it opens or comes to the front), Run a Shortcut (the list shows your Shortcuts; one with Set Focus turns Do Not Disturb on and off), Lock the screen, Start the screen saver, Turn off the display, Mute or unmute, Play or pause (with something playing).
+- [ ] Full screen on or off: choose it for a tap (**Allow in Accessibility…** if the popup asks), close the popup, work in an app with a normal window (Safari, Finder, Notes) and make that tap: the app goes into full screen. The same tap again brings it back. Try it with the app already in full screen first, with Finder showing no window (it says there is no window), and in an app whose window has no green button (it says the window can't go full screen). Without the permission the indicator says so.
 - [ ] Copy and Paste: the popup says to allow Island in Accessibility; allow it (System Settings ▸ Privacy & Security ▸ Accessibility; it may need allowing again after Island is updated). Select text, tap to copy, click in another place, tap to paste. Without the permission the indicator says so.
 - [ ] If macOS's own "Look up & data detectors" is set to three-finger tap, the popup warns about it on the three-finger cards.
 - [ ] Switch the Taps switch off: no tap does anything, and the choices are still there when it is switched on again. Quit and open Island: the choices are kept.

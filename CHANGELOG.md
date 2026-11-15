@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.4.0
+
+- **The changed files of a pull request, in Max and focus mode.** Open a pull request for review in the GitHub tab and, when the
+  island is big, the files it changes are shown beside the review as on GitHub's *Files changed* tab: a list of the files
+  (added, modified, deleted, renamed, with their +/− counts), and under it every file's changes one below another with the line
+  numbers before and after, additions in green and removals in red, hunk headers, and the file's name bar staying at the top
+  while it scrolls. A click on a file goes to it, a click on its name bar folds it, and *Fold all* folds them all. A renamed
+  file shows its old and new name; a binary or very large file says that GitHub does not send its changes. The usual small
+  island is unchanged (with a hint where to see the files), and nothing is asked of GitHub for them there. A box above the
+  file list filters by name: type part of a file's name or folder (several words must all match, capitals do not matter, a
+  renamed file also matches by its old name) and only those files stay in the list and below it; clearing the box, or its
+  cross, shows every file again.
+- **Finding the branch to open a pull request from.** The branch list was loaded once, when you chose the repository, so a
+  branch pushed afterwards was not in it, and it came alphabetically, so a fresh one sat somewhere in the middle (and a
+  repository with more than 500 branches lost everything after some letter). Now the *merge from* and *into* lists open with
+  the 20 most recently pushed branches (newest first, with how long ago each was pushed, and the default branch always
+  there), looked at again each time you open the list so one pushed a moment ago is in it. Any other branch is found by
+  typing: after a one-second pause in the typing, GitHub is asked for the branches whose names contain what you typed (any
+  capitals), so every branch is reachable without loading them all. When the list or the search cannot be loaded it says so
+  and offers *Try again*, instead of "no other branches".
+
 ## 1.3.1
 
 - **Tap and hold** (Tools tab, *Tap gestures*). Besides the double and triple taps, three fingers or four fingers put down

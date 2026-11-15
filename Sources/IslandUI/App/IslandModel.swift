@@ -87,6 +87,9 @@ public final class IslandModel {
     /// Max mode: the open island is as big as most of the screen. It closes by itself like any open island (pin it to keep it
     /// open), and opens big again next time until Max is switched off. Not remembered between launches.
     public var isMax = false
+    /// Focus mode: everything else on the screen is blurred and the island is a big card in the middle of it (not hanging from
+    /// the notch). Escape or a click outside the card ends it, and the island is as it was before. Not remembered between launches.
+    public var isFocusView = false
     /// The size the open island's content is laid out at: the usual size, or the Max size set by the panel controller.
     public internal(set) var contentSize: CGSize = IslandMetrics.expandedSize
     public private(set) var activities: Set<LiveActivityKind> = []

@@ -229,11 +229,20 @@ private struct Hand {
     #expect(old.trackpadTapsEnabled && old.trackpadWantedTaps.isEmpty)
 }
 
-@Test func everyActionHasANameASymbolAndOnlyCopyAndPasteNeedAccessibility() {
-    #expect(TrackpadTapAction.allCases.count == 12)
+@Test func everyActionHasANameASymbolAndOnlyCopyPasteAndFullScreenNeedAccessibility() {
+    #expect(TrackpadTapAction.allCases.count == 13)
     #expect(TrackpadTapAction.allCases.allSatisfy { !$0.title.isEmpty && !$0.shortTitle.isEmpty && !$0.symbol.isEmpty })
-    #expect(Set(TrackpadTapAction.allCases.map(\.title)).count == 12)
-    #expect(TrackpadTapAction.allCases.filter(\.needsAccessibility) == [.copy, .paste])
+    #expect(Set(TrackpadTapAction.allCases.map(\.title)).count == 13)
+    #expect(Set(TrackpadTapAction.allCases.map(\.symbol)).count == 13)
+    #expect(TrackpadTapAction.allCases.filter(\.needsAccessibility) == [.copy, .paste, .fullScreen])
+}
+
+@Test func fullScreenIsAChoiceForAnyTapAndIsSavedByName() throws {
+    #expect(TrackpadTapAction.fullScreen.rawValue == "fullScreen")
+    let saved = try JSONDecoder().decode(Settings.self, from: Data(#"{"trackpadTapActions":{"3-hold":"fullScreen","4-2":"fullScreen"}}"#.utf8))
+    #expect(saved.trackpadTapAction(for: .hold(fingers: 3)) == .fullScreen)
+    #expect(saved.trackpadTapAction(for: double4) == .fullScreen)
+    #expect(saved.trackpadWantedTaps == [.hold(fingers: 3), double4])
 }
 
 @Test func aSavedChoiceThatNoLongerExistsMeansNothingSoAnOptionCanBeTakenOut() throws {
@@ -260,8 +269,8 @@ extension Hand {
 
 @Test func threeFingersHeldStillAreAHoldReportedOnceWhileTheyAreStillDownAndNotBefore() {
     var hand = Hand(wanted: [hold3])
-    hand.putDownAndHold(3, for: 1.4)
-    #expect(hand.events.isEmpty)                                             // not yet: the hold time is a second and a half
+    hand.putDownAndHold(3, for: TrackpadTapEngine.holdSeconds - 0.1)
+    #expect(hand.events.isEmpty)                                             // not yet: a tenth of a second short of the hold time
     hand.feed(fingers(3), after: 0.2)
     #expect(hand.fired == [hold3])                                           // reported while the fingers are still down
     hand.feed(fingers(3), after: 0.5)
@@ -271,9 +280,15 @@ extension Hand {
     #expect(hand.fired == [hold3])                                           // and nothing more when they lift
 }
 
+@Test func theHoldTimeIsAboutASecondAndClearlyLongerThanATap() {
+    // He found a second and a half too long, so it is a second. A tap lasts at most 0.3 s, so a hold cannot be mistaken for one.
+    #expect(TrackpadTapEngine.holdSeconds == 1.0)
+    #expect(TrackpadTapEngine.holdSeconds >= 3 * TrackpadTapEngine.tapSeconds)
+}
+
 @Test func fourFingersHeldStillAreAHoldToo() {
     var hand = Hand(wanted: [hold4])
-    hand.putDownAndHold(4, for: 1.7)
+    hand.putDownAndHold(4, for: TrackpadTapEngine.holdSeconds + 0.2)
     #expect(hand.fired == [hold4])
 }
 
@@ -315,7 +330,7 @@ extension Hand {
     // One of the three lifts before the time is up.
     var lifting = Hand(wanted: [hold3, hold4])
     lifting.feed(fingers(3))
-    lifting.feed(fingers(2), after: 1.0)
+    lifting.feed(fingers(2), after: 0.5)
     lifting.feed(fingers(2), after: 1.0)
     #expect(lifting.events.isEmpty)
 }
@@ -334,7 +349,7 @@ extension Hand {
 
 @Test func aHoldIsNotAlsoATapWhenTheFingersLiftAndTapsStillWorkAfterwards() {
     var hand = Hand(wanted: [hold3, double3])
-    hand.putDownAndHold(3, for: 1.7)
+    hand.putDownAndHold(3, for: TrackpadTapEngine.holdSeconds + 0.2)
     hand.feed(lifted, after: 0.05)
     #expect(hand.fired == [hold3])
     hand.time += 0.5
@@ -355,7 +370,7 @@ extension Hand {
     hand.tap(3)
     hand.tap(3, then: 0.05)
     #expect(hand.events.isEmpty)                                             // a third tap might still come
-    hand.putDownAndHold(3, for: 1.7)                                         // but this is a hold: the double tap is complete
+    hand.putDownAndHold(3, for: TrackpadTapEngine.holdSeconds + 0.2)                      // but this is a hold: the double tap is complete
     #expect(hand.fired == [double3, hold3])
 }
 

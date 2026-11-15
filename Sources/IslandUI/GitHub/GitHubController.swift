@@ -43,6 +43,14 @@ final class GitHubController {
         case done(GitHubReviewEvent)
     }
 
+    /// The files a pull request changes, as the review panel loads them when there is room to show them.
+    enum ReviewFiles: Equatable {
+        case idle
+        case loading
+        case loaded([GitHubChangedFile])
+        case failed
+    }
+
     enum Creation: Equatable {
         case idle
         case creating
@@ -75,6 +83,17 @@ final class GitHubController {
     private(set) var repo: GitHubRepo?
     private(set) var branches: [GitHubBranch] = []
     private(set) var branchesLoading = false
+    /// The branch list could not be loaded and there is none to show: the picker says so and offers another try.
+    private(set) var branchesFailed = false
+    /// How many branches the lists open with: the ones pushed to most recently. Any other is found by searching.
+    static let recentBranchLimit = 20
+    /// What a search of the branches found, and what was searched for (lower case, trimmed): the picker shows these beside the
+    /// recent branches while that is what is typed.
+    private(set) var branchSearchQuery = ""
+    private(set) var branchSearchResults: [GitHubBranch] = []
+    /// A search is waiting for the typing to pause, or is under way.
+    private(set) var branchSearching = false
+    private(set) var branchSearchFailed = false
     private(set) var base: String?
     private(set) var head: String?
     private(set) var title = ""
@@ -107,6 +126,7 @@ final class GitHubController {
     private(set) var reviewTarget: GitHubPullRequest?
     private(set) var reviewDetails: GitHubPullRequestDetails?
     private(set) var isLoadingReview = false
+    private(set) var reviewFiles: ReviewFiles = .idle
     /// What the person has written to go with the review (required to request changes).
     var reviewComment = ""
     private(set) var reviewSubmission: ReviewSubmission = .idle
@@ -115,6 +135,11 @@ final class GitHubController {
     @ObservationIgnored private var reviewGeneration = 0
     @ObservationIgnored private var confirmationGeneration = 0
     @ObservationIgnored private let confirmationSeconds: TimeInterval
+    /// How long the typing must pause before the branches are searched on GitHub.
+    @ObservationIgnored private let branchSearchDelay: TimeInterval
+    @ObservationIgnored private var branchSearchTask: Task<Void, Never>?
+    /// Bumped by every change to what is typed, and when the search ends, so an answer to an earlier search is ignored.
+    @ObservationIgnored private var branchSearchGeneration = 0
 
     /// The pull request whose link was just copied (the button says "Copied" for a moment).
     private(set) var copiedID: String?
@@ -138,7 +163,7 @@ final class GitHubController {
     init(
         api: GitHubAPI = URLSessionGitHubAPI(), tokens: TokenStoring,
         now: @escaping () -> Date = Date.init, refreshInterval: TimeInterval = 120, copiedSeconds: TimeInterval = 1.5,
-        confirmationSeconds: TimeInterval = 4,
+        confirmationSeconds: TimeInterval = 4, branchSearchDelay: TimeInterval = 1,
         writeToClipboard: @escaping (String) -> Void = { text in
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
@@ -150,6 +175,7 @@ final class GitHubController {
         self.refreshInterval = refreshInterval
         self.copiedSeconds = copiedSeconds
         self.confirmationSeconds = confirmationSeconds
+        self.branchSearchDelay = branchSearchDelay
         self.writeToClipboard = writeToClipboard
     }
 
@@ -162,14 +188,29 @@ final class GitHubController {
     }
 
     /// Branches matching what was typed. The base branch is left out of the "merge from" list (it cannot merge into
-    /// itself), and the repository's default branch comes first.
-    func branches(matching query: String, excludingBase: Bool) -> [GitHubBranch] {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    /// itself). The default branch comes first, then the rest alphabetically; with `recentFirst` (the "merge from" list, where
+    /// the branch you want is the one you just pushed) the most recently pushed come first instead, newest at the top.
+    func branches(matching query: String, excludingBase: Bool, recentFirst: Bool = false) -> [GitHubBranch] {
+        let needle = Self.normalized(query)
         let defaultName = repo?.defaultBranch
-        return branches
+        // The recent branches, and (while that is what is typed) what GitHub found for it, without the same branch twice.
+        var pool = branches
+        if !needle.isEmpty, needle == branchSearchQuery {
+            pool += branchSearchResults.filter { found in !branches.contains { $0.name == found.name } }
+        }
+        return pool
             .filter { (!excludingBase || $0.name != base) && (needle.isEmpty || $0.name.lowercased().contains(needle)) }
             .sorted { lhs, rhs in
-                if (lhs.name == defaultName) != (rhs.name == defaultName) { return lhs.name == defaultName }
+                if recentFirst {
+                    switch (lhs.lastPushed, rhs.lastPushed) {
+                    case let (left?, right?) where left != right: return left > right
+                    case (.some, nil): return true
+                    case (nil, .some): return false
+                    default: break
+                    }
+                } else if (lhs.name == defaultName) != (rhs.name == defaultName) {
+                    return lhs.name == defaultName
+                }
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
     }
@@ -293,18 +334,126 @@ final class GitHubController {
         titleEdited = false
         bodyEdited = false
         branchesLoading = true
+        branchesFailed = false
+        endBranchSearch()
         do {
-            async let loadedBranches = api.branches(token: token, chosen.reference)
+            async let recent = api.recentBranches(token: token, chosen.reference, limit: Self.recentBranchLimit)
             async let template = api.pullRequestTemplate(token: token, chosen.reference)
-            let (list, templateText) = try await (loadedBranches, template)
+            let (list, templateText) = try await (recent, template)
             guard generation == choiceGeneration else { return }
-            branches = list
+            branches = Self.withDefault(list, of: chosen)
             if !bodyEdited, body.isEmpty, let templateText { body = templateText }
         } catch is CancellationError {
         } catch {
-            if generation == choiceGeneration { handle(error, doing: "load that repository's branches") }
+            if generation == choiceGeneration {
+                branchesFailed = true
+                handle(error, doing: "load that repository's branches")
+            }
         }
         if generation == choiceGeneration { branchesLoading = false }
+    }
+
+    /// Looks at GitHub again for the chosen repository's most recently pushed branches, so one pushed a moment ago is in the list
+    /// (it is otherwise only loaded when the repository is chosen) and a load that failed gets another try. What is shown stays
+    /// until the new list arrives, and a branch already chosen or typed in stays in it.
+    func refreshBranches() async {
+        guard connection == .connected, let token, let repo, !branchesLoading else { return }
+        let generation = choiceGeneration
+        branchesLoading = true
+        do {
+            let loaded = Self.withDefault(try await api.recentBranches(token: token, repo.reference, limit: Self.recentBranchLimit), of: repo)
+            guard generation == choiceGeneration else { return }
+            branches = keepingChosen(in: loaded)
+            branchesFailed = false
+        } catch is CancellationError {
+        } catch {
+            if generation == choiceGeneration {
+                branchesFailed = branches.isEmpty
+                handle(error, doing: "refresh the branches")
+            }
+        }
+        if generation == choiceGeneration { branchesLoading = false }
+    }
+
+    /// The default branch is always offered (it is what a pull request usually goes into), recent or not.
+    private static func withDefault(_ list: [GitHubBranch], of repo: GitHubRepo) -> [GitHubBranch] {
+        guard !repo.defaultBranch.isEmpty, !list.contains(where: { $0.name == repo.defaultBranch }) else { return list }
+        return list + [GitHubBranch(name: repo.defaultBranch)]
+    }
+
+    /// The new list, plus the branches chosen for this pull request if the new list lacks them (one found by searching or typed
+    /// in, which is not among the recent ones).
+    private func keepingChosen(in loaded: [GitHubBranch]) -> [GitHubBranch] {
+        var result = loaded
+        for name in [head, base].compactMap({ $0 }) where !result.contains(where: { $0.name == name }) {
+            if let known = branches.first(where: { $0.name == name }) { result.append(known) }
+        }
+        return result
+    }
+
+    // MARK: Searching the branches
+
+    /// What is typed in a branch picker, as the search wants it: trimmed, and in lower case (GitHub does not mind capitals).
+    private static func normalized(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+
+    /// The search box of a branch list changed. The recent branches are filtered at once; for the rest, GitHub is asked for the
+    /// branches whose names contain the text, once the typing has paused for `branchSearchDelay` (a second), so every branch is
+    /// reachable without loading them all. Typing on cancels the wait.
+    func branchQueryChanged(_ text: String) {
+        let query = Self.normalized(text)
+        branchSearchTask?.cancel()
+        branchSearchTask = nil
+        branchSearchGeneration += 1
+        guard !query.isEmpty else {
+            clearBranchSearch()
+            return
+        }
+        if query == branchSearchQuery, !branchSearchFailed {
+            branchSearching = false                  // GitHub already answered for exactly this
+            return
+        }
+        branchSearching = true
+        branchSearchFailed = false
+        let generation = branchSearchGeneration
+        let delay = branchSearchDelay
+        branchSearchTask = Task { [weak self] in
+            if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+            guard !Task.isCancelled else { return }
+            await self?.searchBranches(query, generation: generation)
+        }
+    }
+
+    /// The branch list was closed: no search is waiting, and none of its results are kept.
+    func endBranchSearch() {
+        branchSearchTask?.cancel()
+        branchSearchTask = nil
+        branchSearchGeneration += 1
+        clearBranchSearch()
+    }
+
+    private func clearBranchSearch() {
+        branchSearchQuery = ""
+        branchSearchResults = []
+        branchSearching = false
+        branchSearchFailed = false
+    }
+
+    private func searchBranches(_ query: String, generation: Int) async {
+        guard connection == .connected, let token, let repo, generation == branchSearchGeneration else { return }
+        let repoGeneration = choiceGeneration
+        do {
+            let found = try await api.searchBranches(token: token, repo.reference, matching: query)
+            guard generation == branchSearchGeneration, repoGeneration == choiceGeneration else { return }
+            branchSearchQuery = query
+            branchSearchResults = found
+            branchSearching = false
+        } catch is CancellationError {
+        } catch {
+            guard generation == branchSearchGeneration, repoGeneration == choiceGeneration else { return }
+            branchSearchFailed = true
+            branchSearching = false
+            handle(error, doing: "search the branches")
+        }
     }
 
     /// A repository typed or pasted in as `owner/name` or a link: looked up, and chosen if a pull request can start there.
@@ -345,6 +494,8 @@ final class GitHubController {
         head = nil
         branches = []
         branchesLoading = false
+        branchesFailed = false
+        endBranchSearch()
         title = ""
         body = ""
         titleEdited = false
@@ -359,13 +510,21 @@ final class GitHubController {
     func selectBase(_ name: String) async {
         guard base != name else { return }
         base = name
+        adoptSearched(name)
         await choiceChanged()
     }
 
     func selectHead(_ name: String) async {
         guard head != name else { return }
         head = name
+        adoptSearched(name)
         await choiceChanged()
+    }
+
+    /// A branch found by searching, once chosen, joins the list, so it is there (and marked) when the list is opened again.
+    private func adoptSearched(_ name: String) {
+        guard !branches.contains(where: { $0.name == name }), let found = branchSearchResults.first(where: { $0.name == name }) else { return }
+        branches.append(found)
     }
 
     /// A branch typed in that the list did not show (a repository can have more branches than are listed): checked with
@@ -479,6 +638,7 @@ final class GitHubController {
         let generation = reviewGeneration
         reviewTarget = pullRequest
         reviewDetails = nil
+        reviewFiles = .idle
         reviewComment = ""
         reviewSubmission = .idle
         clearConfirmation()
@@ -496,10 +656,34 @@ final class GitHubController {
         if generation == reviewGeneration { isLoadingReview = false }
     }
 
+    /// Loads the files the open pull request changes, once. The review panel asks when it is big enough to show them (Max and
+    /// focus mode), so the small island never spends the requests; asking again while loading or loaded does nothing.
+    func loadReviewFiles() async {
+        guard connection == .connected, let token, let target = reviewTarget else { return }
+        switch reviewFiles {
+        case .loading, .loaded: return
+        case .idle, .failed: break
+        }
+        let generation = reviewGeneration
+        reviewFiles = .loading
+        do {
+            let files = try await api.pullRequestFiles(token: token, GitHubRepoRef(fullName: target.repoFullName), number: target.number)
+            guard generation == reviewGeneration else { return }
+            reviewFiles = .loaded(files)
+        } catch is CancellationError {
+            if generation == reviewGeneration { reviewFiles = .idle }      // the panel went small while it loaded: ask again when it grows
+        } catch {
+            guard generation == reviewGeneration else { return }
+            reviewFiles = .failed
+            handle(error, doing: "load the changed files")
+        }
+    }
+
     func closeReview() {
         reviewGeneration += 1
         reviewTarget = nil
         reviewDetails = nil
+        reviewFiles = .idle
         reviewComment = ""
         reviewSubmission = .idle
         isLoadingReview = false
@@ -751,6 +935,8 @@ final class GitHubController {
         repo = nil
         branches = []
         branchesLoading = false
+        branchesFailed = false
+        endBranchSearch()
         base = nil
         head = nil
         title = ""
@@ -773,6 +959,7 @@ final class GitHubController {
         searchGeneration += 1
         reviewTarget = nil
         reviewDetails = nil
+        reviewFiles = .idle
         reviewComment = ""
         reviewSubmission = .idle
         isLoadingReview = false

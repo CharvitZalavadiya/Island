@@ -37,6 +37,13 @@ gear menu says when an update is waiting. Versions before 1.1.0 cannot update th
 - **Open it** by pointing at the notch or clicking it; it closes when the pointer leaves. The **pin** keeps it open.
 - **Switch tabs** with the icons along the top, or swipe sideways. In Settings (right-click the island) you can drag tabs into the order you like, and switch off the ones you do not want; they come back when you switch them on again.
 - **Max** (the arrows button) opens it big, on most of the screen; handy for the browser.
+- **Focus mode** (the button with the card, next to Max) blurs everything else on the screen and shows the island as a big
+  card in the middle of it, 95% of the screen wide and hanging just below the notch. **Esc** or a click anywhere outside the card ends it, and
+  the island is as it was before.
+- **Keyboard shortcuts.** Click the open island once (that is what gives it the keyboard; hovering never does, so it cannot
+  take your typing) and then **F** opens focus mode (and leaves it), **M** switches between the usual size and Max, **P** pins
+  or unpins, and **⌘,** opens Settings. The letters only count while you are not typing into a text box or a web page, and the
+  keyboard goes back to the app you were in when the island closes.
 - While it is closed, small **wings** beside the notch show what is live: the timer, keep-awake, music playing, a Focus mode.
 
 ## What is in it
@@ -51,10 +58,10 @@ gear menu says when an update is waiting. Versions before 1.1.0 cannot update th
 | **Camera** | A quick mirror before a call |
 | **Calendar** | Your events, with an alert and a Join button a few minutes before |
 | **Tasks** | Local tasks, or your Todoist tasks |
-| **GitHub** | Open a pull request in any repository, see yours and the ones waiting for your review, search any repository, review (approve, request changes, comment) |
+| **GitHub** | Open a pull request in any repository (the branch lists open with the 20 most recently pushed branches, newest first, and typing searches GitHub for any other), see yours and the ones waiting for your review, search any repository, review (approve, request changes, comment), and in Max or focus mode read the changed files with their diffs (and filter them by name), as on GitHub's Files changed tab |
 | **Teams** | *Experimental.* Your Microsoft Teams chats; needs an app you register in your own Microsoft Entra |
 | **Base64 & Cron** | Encode and decode, and explain a cron expression in words |
-| **Tools** | Now playing with controls, colour picker, a keyboard lock for cleaning, and trackpad gestures (*experimental: the trackpad is read through a macOS library that is not public*): slide one finger along an edge to change the volume or the brightness or to skip through what is playing, and tap with three or four fingers, twice or three times, or tap and hold them still for a second and a half, to copy, paste, take a screenshot, open an app, run a Shortcut (which can turn Do Not Disturb on or off), lock the screen, start the screen saver and more. Both are on from the start; each has its own tile in the tab (*Slide gestures*, *Tap gestures*) that opens its settings in a popup |
+| **Tools** | Now playing with controls, colour picker, a keyboard lock for cleaning, and trackpad gestures (*experimental: the trackpad is read through a macOS library that is not public*): slide one finger along an edge to change the volume or the brightness or to skip through what is playing, and tap with three or four fingers, twice or three times, or tap and hold them still for a second, to copy, paste, take a screenshot, open an app, run a Shortcut (which can turn Do Not Disturb on or off), put the app you are in into full screen and back, lock the screen, start the screen saver and more. Both are on from the start; each has its own tile in the tab (*Slide gestures*, *Tap gestures*) that opens its settings in a popup |
 | **Browser** | Tabs (down the side or along the top), bookmarks, ad blocking (YouTube included), tabs that sleep to save memory |
 
 ## Permissions and privacy
@@ -100,7 +107,11 @@ scripts/release.sh          # dist/Island-<version>.dmg, universal (Apple Silico
 ```
 
 How releases are made (build on `dev`; merging a pull request into `main` publishes one when the version in `Sources/IslandCore/Version.swift` is new) and
-how signing and notarizing work are in [docs/distribution.md](docs/distribution.md). To try how Island looks on
+how signing and notarizing work are in [docs/distribution.md](docs/distribution.md). macOS remembers the permissions you give
+Island (calendar, camera, folders) by who signed the app, so `scripts/build-app.sh` signs every build with the same
+Apple Development certificate (it remembers which in `build/.signing-identity`) and tells you if another copy of Island, like
+one in /Applications, is signed differently: macOS keeps one set of permissions for both, so whichever you open second asks
+again. To try how Island looks on
 a Mac without a notch, start the built app with `--simulate-no-notch`.
 
 ## License

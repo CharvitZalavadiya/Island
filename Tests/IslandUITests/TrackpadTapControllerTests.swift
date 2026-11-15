@@ -358,7 +358,7 @@ extension Rig {
 @Test @MainActor func aHoldRunsItsActionOnceWhileTheFingersAreStillDownAndNotBeforeTheTime() async throws {
     let rig = Rig(tweak: { $0.trackpadTapActions = ["3-hold": "mute"] })
     rig.controller.start()
-    rig.putDownAndHold(3, for: 1.4)
+    rig.putDownAndHold(3, for: TrackpadTapEngine.holdSeconds - 0.1)
     try await rig.settle()
     #expect(rig.runner.calls.isEmpty)                                         // not yet
     rig.clock.time += 0.2
@@ -390,10 +390,23 @@ extension Rig {
     try await rig.settle()
     #expect(rig.runner.calls.map(\.action) == [.copy])
     rig.clock.time += 0.6
-    rig.putDownAndHold(3, for: 1.7)
+    rig.putDownAndHold(3, for: TrackpadTapEngine.holdSeconds + 0.2)
     rig.liftAll()
     try await rig.settle()
     #expect(rig.runner.calls.map(\.action) == [.copy, .paste])
+}
+
+@Test @MainActor func aTapSetToFullScreenAsksTheRunnerEachTimeSoTheSameTapGoesInAndOut() async throws {
+    let rig = Rig(tweak: { $0.trackpadTapActions = ["3-2": "fullScreen"] })
+    rig.controller.start()
+    rig.tap(3)
+    rig.tap(3)
+    try await rig.settle()
+    rig.clock.time += 1
+    rig.tap(3)
+    rig.tap(3)
+    try await rig.settle()
+    #expect(rig.runner.calls.map(\.action) == [.fullScreen, .fullScreen])
 }
 
 @Test @MainActor func theTrackpadIsReadForAHoldThatIsSetEvenWithNothingElseOn() {
@@ -406,7 +419,7 @@ extension Rig {
     let rig = Rig(edges: false)
     rig.controller.start()
     rig.controller.setTapPreviewing(true)
-    rig.putDownAndHold(4, for: 1.7)
+    rig.putDownAndHold(4, for: TrackpadTapEngine.holdSeconds + 0.2)
     try await rig.settle()
     #expect(rig.controller.lastTap?.trigger == hold4)
     #expect(rig.runner.calls.isEmpty && rig.feedback.shown.isEmpty)

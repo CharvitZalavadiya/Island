@@ -34,6 +34,23 @@ public enum GitHubDecoding {
         enum CodingKeys: String, CodingKey { case name, isProtected = "protected" }
     }
 
+    private struct WireChangedFile: Decodable {
+        var filename: String?
+        var previousFilename: String?
+        var status: String?
+        var additions: Int?
+        var deletions: Int?
+        var patch: String?
+        enum CodingKeys: String, CodingKey { case filename, status, additions, deletions, patch, previousFilename = "previous_filename" }
+    }
+
+    private struct WireActivity: Decodable {
+        var ref: String?
+        var timestamp: String?
+        var activityType: String?
+        enum CodingKeys: String, CodingKey { case ref, timestamp, activityType = "activity_type" }
+    }
+
     private struct WireRef: Decodable {
         var ref: String?
         var repo: WireRepoName?
@@ -132,6 +149,50 @@ public enum GitHubDecoding {
     public static func branches(from data: Data) throws -> [GitHubBranch] {
         guard let wires = try? JSONDecoder().decode([WireBranch].self, from: data) else { throw GitHubError.unreadable }
         return wires.compactMap { wire in wire.name.map { GitHubBranch(name: $0, isProtected: wire.isProtected ?? false) } }
+    }
+
+    /// The files of a pull request with their changes, in the order GitHub lists them (as the website does, by path).
+    public static func changedFiles(from data: Data) throws -> [GitHubChangedFile] {
+        guard let wires = try? JSONDecoder().decode([WireChangedFile].self, from: data) else { throw GitHubError.unreadable }
+        return wires.compactMap { wire in
+            guard let filename = wire.filename else { return nil }
+            let patch = wire.patch.map(GitHubDiff.hunks(fromPatch:)) ?? []
+            return GitHubChangedFile(
+                filename: filename, previousFilename: wire.previousFilename, status: wire.status.flatMap(GitHubFileStatus.init(rawValue:)) ?? .modified,
+                additions: wire.additions ?? 0, deletions: wire.deletions ?? 0, hunks: patch)
+        }
+    }
+
+    /// The entries of a repository's activity list that are about a branch, newest first as GitHub sends them: a push, a forced
+    /// push, a new branch, or a merge into it counts as the branch being pushed to; a deleted branch as gone. Tags and anything
+    /// else are left out.
+    public static func branchActivity(from data: Data) throws -> [GitHubBranchActivity] {
+        guard let wires = try? JSONDecoder().decode([WireActivity].self, from: data) else { throw GitHubError.unreadable }
+        let pushing: Set<String> = ["push", "force_push", "branch_creation", "pr_merge", "merge_queue_merge"]
+        return wires.compactMap { wire in
+            guard let kind = wire.activityType, let ref = wire.ref, ref.hasPrefix("refs/heads/"), let when = wire.timestamp.flatMap(date) else { return nil }
+            let branch = String(ref.dropFirst("refs/heads/".count))
+            if pushing.contains(kind) { return GitHubBranchActivity(branch: branch, kind: .pushed, date: when) }
+            if kind == "branch_deletion" { return GitHubBranchActivity(branch: branch, kind: .deleted, date: when) }
+            return nil
+        }
+    }
+
+    private struct GQLBranchNode: Decodable { var name: String? }
+    private struct GQLBranchRefs: Decodable { var nodes: [GQLBranchNode?]? }
+    private struct GQLBranchRepository: Decodable { var refs: GQLBranchRefs? }
+    private struct GQLBranchData: Decodable { var repository: GQLBranchRepository? }
+    private struct GQLBranchResponse: Decodable { var data: GQLBranchData?; var errors: [GQLError]? }
+
+    /// The branches whose names contain what was typed (the answer to GitHub's `BranchSearch` query), in alphabetical order.
+    public static func branches(fromGraphQLSearch data: Data) throws -> [GitHubBranch] {
+        guard let response = try? JSONDecoder().decode(GQLBranchResponse.self, from: data) else { throw GitHubError.unreadable }
+        guard let nodes = response.data?.repository?.refs?.nodes else {
+            // A repository that does not exist (or cannot be seen) comes back as an error and no data.
+            if response.errors?.contains(where: { $0.type == "NOT_FOUND" }) == true { throw GitHubError.notFound }
+            throw graphQLError(response.errors)
+        }
+        return nodes.compactMap { $0?.name }.map { GitHubBranch(name: $0) }
     }
 
     /// The branch from the single-branch call.

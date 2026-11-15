@@ -154,3 +154,54 @@ private func builtInNotch() -> CGRect {
     #expect(frame.midX == external.midX)
     #expect(frame.maxY == external.maxY)
 }
+
+// MARK: Focus mode
+
+@Test func theFocusCardHangsClearBelowTheNotchWithAGap() {
+    let notch = builtInNotch()
+    let card = NotchGeometry.focusFrame(screenFrame: screen, topInset: notch.height)
+    #expect(card.maxY == notch.minY - 10)                                       // its top edge is 10 pt below the notch's bottom edge
+    #expect(card.maxY < notch.minY)                                             // so it can no longer run into the notch
+}
+
+@Test func theFocusCardIsNinetyFivePercentWideInTheMiddleAndFillsTheRestBelowTheNotch() {
+    let card = NotchGeometry.focusFrame(screenFrame: screen, topInset: builtInNotch().height)
+    #expect(card.width == 1436)                                                 // 95 % of 1512, rounded down to whole points
+    #expect(abs(card.midX - screen.midX) <= 0.5)
+    #expect(card.minY == 24)                                                    // the bottom margin: 2.5 % of the height
+    #expect(card.height == 910.0)                                               // 982 less 24 below and 48 above (notch 38 + a gap of 10)
+    #expect(screen.contains(card))
+}
+
+@Test func withoutANotchTheFocusCardIsNinetyFivePercentEachWayInTheMiddle() {
+    let card = NotchGeometry.focusFrame(screenFrame: screen)
+    #expect(card.size == CGSize(width: 1436, height: 934))                      // 982 less the same 24 pt above and below
+    #expect(abs(card.midX - screen.midX) <= 0.5 && abs(card.midY - screen.midY) <= 0.5)
+    #expect(abs(card.minY - (screen.maxY - card.maxY)) <= 1)                    // the same margin top and bottom
+}
+
+@Test func theFocusCardHonoursTheScreenOriginOfASecondDisplayAndItsMenuBar() {
+    let external = CGRect(x: 1512, y: -300, width: 2560, height: 1440)
+    let card = NotchGeometry.focusFrame(screenFrame: external, topInset: 24)    // a menu bar 24 pt tall, drawn as the artificial notch
+    #expect(external.contains(card))
+    #expect(abs(card.midX - external.midX) <= 0.5)
+    #expect(card.width == 2432)
+    #expect(card.minY == external.minY + 36)                                    // 2.5 % of 1440 at the bottom
+    #expect(card.maxY == external.maxY - 36)                                    // the same at the top: more than the bar (24) and a gap (10)
+    #expect(card.maxY < external.maxY - 24)                                     // so it is clear of the bar
+}
+
+@Test func theFocusCardStaysOnTheScreenWithAnyNotchAndAnyFraction() {
+    for topInset in [0, 24, 38, 120, 5000] as [CGFloat] {
+        for fraction in [0.5, 0.95, 1.0, 1.3] as [CGFloat] {
+            let card = NotchGeometry.focusFrame(screenFrame: screen, topInset: topInset, fraction: fraction)
+            #expect(screen.contains(card), "inset \(topInset), fraction \(fraction)")
+            #expect(card.height >= 0 && card.width > 0)
+        }
+    }
+}
+
+@Test func aHugeNotchStillLeavesHalfTheScreenForTheCard() {
+    let card = NotchGeometry.focusFrame(screenFrame: screen, topInset: 5000)
+    #expect(card.height >= screen.height / 2 - 25)
+}

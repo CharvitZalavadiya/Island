@@ -55,6 +55,19 @@ public enum NotchGeometry {
         CGSize(width: max(screenFrame.width * fraction, minimum.width), height: max(screenFrame.height * fraction, minimum.height))
     }
 
+    /// The island in focus mode: a rectangle in the middle of the screen, `fraction` of its width, and as tall as fits between
+    /// a margin at the bottom and the space the notch (or menu bar) takes at the top, `topInset`, plus a `gap`: the card hangs
+    /// clear below the notch instead of running into it. (With no `topInset` it is `fraction` of the height too, in the middle.)
+    /// Whole points, so the edges are sharp, and never outside the screen.
+    public static func focusFrame(screenFrame: CGRect, topInset: CGFloat = 0, gap: CGFloat = 10, fraction: CGFloat = 0.95) -> CGRect {
+        let width = min((screenFrame.width * fraction).rounded(.down), screenFrame.width)
+        let margin = (screenFrame.height * (1 - min(fraction, 1)) / 2).rounded(.down)
+        // Never so much at the top that less than half the screen is left for the card.
+        let top = min(max(margin, topInset + gap), screenFrame.height / 2)
+        let height = max(screenFrame.height - top - margin, 0)
+        return CGRect(x: (screenFrame.midX - width / 2).rounded(.down), y: screenFrame.minY + margin, width: width, height: height)
+    }
+
     /// The banner for an event alert: centered on the notch (or screen), flush with the top edge and kept on screen.
     public static func alertFrame(notch: CGRect?, screenFrame: CGRect, size: CGSize) -> CGRect {
         expandedFrame(notch: notch, screenFrame: screenFrame, size: size)

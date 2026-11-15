@@ -16,6 +16,20 @@ private final class FakeGitHub: GitHubAPI, @unchecked Sendable {
         GitHubRepo(id: 4, fullName: "octocat/blog", owner: "octocat", name: "blog", defaultBranch: "master"),
     ]
     var branchList: [GitHubBranch] = [GitHubBranch(name: "feature/login"), GitHubBranch(name: "main"), GitHubBranch(name: "bugfix"), GitHubBranch(name: "develop")]
+    /// When each of `branchList` was last pushed to (what GitHub's recent activity says).
+    var pushes: [String: Date] = [:]
+    /// Branches that only a search finds (the recent ones are `branchList`, which is what a repository answers with first).
+    var searchPool: [GitHubBranch] = []
+    var searchFailure: Error?
+    /// Holds the branch search for one exact text back until released, so a test can make that answer arrive late.
+    var branchSearchGates: [String: SearchGate] = [:]
+    /// What a pull request's "Files changed" holds (by its number).
+    var files: [Int: [GitHubChangedFile]] = [:]
+    var filesFailure: Error?
+    /// Holds the files of every pull request back until released.
+    var filesGate: SearchGate?
+    /// Holds the branch list of one repository back until released (it answers with the list as it was when asked).
+    var branchesGate: (repo: String, gate: SearchGate)?
     var template: String? = "## What\n\n## Why\n"
     var comparisons: [String: GitHubComparison] = [:]
     var defaultComparison = GitHubComparison(status: "ahead", aheadBy: 3, totalCommits: 3, filesChanged: 5, firstCommitMessage: "First commit")
@@ -55,7 +69,28 @@ private final class FakeGitHub: GitHubAPI, @unchecked Sendable {
         if let found = repoList.first(where: { $0.fullName.lowercased() == ref.fullName.lowercased() }) { return found }
         throw GitHubError.notFound
     }
-    func branches(token: String, _ repo: GitHubRepoRef) async throws -> [GitHubBranch] { record("branches:\(repo.fullName)"); try check(); return branchList }
+    func recentBranches(token: String, _ repo: GitHubRepoRef, limit: Int) async throws -> [GitHubBranch] {
+        record("recent:\(repo.fullName):\(limit)"); try check()
+        // As GitHub answers: dated, newest push first; the ones with no date after them, as listed.
+        var list = branchList.map { branch -> GitHubBranch in var b = branch; b.lastPushed = pushes[branch.name]; return b }
+        list = list.filter { $0.lastPushed != nil }.sorted { $0.lastPushed! > $1.lastPushed! } + list.filter { $0.lastPushed == nil }
+        if let branchesGate, branchesGate.repo == repo.fullName { await branchesGate.gate.wait() }
+        return Array(list.prefix(limit))
+    }
+    func searchBranches(token: String, _ repo: GitHubRepoRef, matching text: String) async throws -> [GitHubBranch] {
+        record("search-branches:\(text)"); try check()
+        let found = (branchList + searchPool).filter { $0.name.lowercased().contains(text.lowercased()) }.sorted { $0.name < $1.name }
+        if let gate = branchSearchGates[text] { await gate.wait() }
+        if let searchFailure { throw searchFailure }
+        return found.map { GitHubBranch(name: $0.name) }
+    }
+    func pullRequestFiles(token: String, _ repo: GitHubRepoRef, number: Int) async throws -> [GitHubChangedFile] {
+        record("files:\(repo.fullName)#\(number)")
+        try check()
+        if let filesGate { await filesGate.wait() }
+        if let filesFailure { throw filesFailure }
+        return files[number] ?? []
+    }
     func branch(token: String, _ repo: GitHubRepoRef, name: String) async throws -> GitHubBranch {
         record("branch:\(name)"); try check()
         guard name == "hidden/branch" else { throw GitHubError.notFound }
@@ -141,10 +176,13 @@ private final class Clipboard: @unchecked Sendable {
 
 private let clock = Date(timeIntervalSince1970: 1_794_000_000)
 
+/// The pause before a branch search is short here (it is a second for real); tests that look at the pause itself make their own.
+private let testSearchDelay: TimeInterval = 0.15
+
 @MainActor private func make(api: FakeGitHub = FakeGitHub(), tokens: FakeTokens = FakeTokens(), clipboard: Clipboard = Clipboard(), copiedSeconds: TimeInterval = 5)
     -> (GitHubController, FakeGitHub, FakeTokens, Clipboard)
 {
-    (GitHubController(api: api, tokens: tokens, now: { clock }, refreshInterval: 0, copiedSeconds: copiedSeconds, writeToClipboard: { clipboard.copied.append($0) }),
+    (GitHubController(api: api, tokens: tokens, now: { clock }, refreshInterval: 0, copiedSeconds: copiedSeconds, branchSearchDelay: testSearchDelay, writeToClipboard: { clipboard.copied.append($0) }),
      api, tokens, clipboard)
 }
 
@@ -258,7 +296,7 @@ private func pull(_ number: Int, _ title: String, repo: String = "acme/app") -> 
     #expect(controller.repo?.fullName == "acme/app" && controller.base == "main" && controller.head == nil)
     #expect(controller.branches.count == 4 && !controller.branchesLoading)
     #expect(controller.body == "## What\n\n## Why\n")
-    #expect(api.calls.contains("branches:acme/app") && api.calls.contains("template:acme/app"))
+    #expect(api.calls.contains("recent:acme/app:20") && api.calls.contains("template:acme/app"))
     #expect(!controller.canCreate)                                                                  // no branch to merge yet
 }
 
@@ -865,4 +903,367 @@ private func theirs(_ number: Int = 1204, author: String = "ravi-k", state: GitH
     api.failure = GitHubError.unauthorized
     #expect(!(await controller.openPullRequest(link: "acme/app#7")))
     #expect(controller.connection == .disconnected && tokens.stored == nil)
+}
+
+// MARK: Finding the branch to open a pull request from
+
+private func names(_ branches: [GitHubBranch]) -> [String] { branches.map(\.name) }
+
+@Test @MainActor func theMergeFromListHasTheMostRecentlyPushedBranchFirstAndTheBaseListKeepsTheDefaultFirst() async {
+    let api = FakeGitHub()
+    api.pushes = ["bugfix": clock.addingTimeInterval(-3_600), "feature/login": clock.addingTimeInterval(-3 * 86_400)]
+    let (controller, _, _, _) = await withRepo(api)
+    // "merge from" (the base, main, is left out): pushed lately, newest first; then the ones with no known push, alphabetically.
+    #expect(names(controller.branches(matching: "", excludingBase: true, recentFirst: true)) == ["bugfix", "feature/login", "develop"])
+    // "into": the default branch first, then alphabetical, as before.
+    #expect(names(controller.branches(matching: "", excludingBase: false)) == ["main", "bugfix", "develop", "feature/login"])
+}
+
+@Test @MainActor func searchingTheMergeFromListKeepsTheRecentFirstOrder() async {
+    let api = FakeGitHub()
+    api.branchList = [GitHubBranch(name: "fix/a"), GitHubBranch(name: "fix/b"), GitHubBranch(name: "fix/c"), GitHubBranch(name: "main")]
+    api.pushes = ["fix/b": clock, "fix/c": clock.addingTimeInterval(-60)]
+    let (controller, _, _, _) = await withRepo(api)
+    #expect(names(controller.branches(matching: "FIX", excludingBase: true, recentFirst: true)) == ["fix/b", "fix/c", "fix/a"])
+    #expect(names(controller.branches(matching: "c", excludingBase: true, recentFirst: true)) == ["fix/c"])
+}
+
+@Test @MainActor func aBranchPushedAfterTheRepositoryWasChosenIsThereOnceTheListIsRefreshed() async {
+    let api = FakeGitHub()
+    let (controller, _, _, _) = await withRepo(api)
+    #expect(!names(controller.branches).contains("fresh/work"))
+    api.branchList.append(GitHubBranch(name: "fresh/work"))
+    api.pushes["fresh/work"] = clock
+    await controller.refreshBranches()
+    #expect(names(controller.branches(matching: "", excludingBase: true, recentFirst: true)).first == "fresh/work")   // and at the top
+    #expect(!controller.branchesLoading && !controller.branchesFailed)
+    #expect(api.calls.filter { $0 == "recent:acme/app:20" }.count == 2)
+}
+
+@Test @MainActor func refreshingKeepsABranchThatWasTypedInEvenIfTheNewListLacksIt() async {
+    let api = FakeGitHub()
+    let (controller, _, _, _) = await withRepo(api)
+    await controller.useTypedBranch("hidden/branch", asHead: true)
+    #expect(controller.head == "hidden/branch")
+    await controller.refreshBranches()
+    #expect(names(controller.branches).contains("hidden/branch") && controller.head == "hidden/branch")
+}
+
+@Test @MainActor func aListThatFailedToLoadSaysSoAndRefreshingTriesAgain() async {
+    let api = FakeGitHub()
+    let (controller, _, _, _) = await connected(api)
+    api.failure = GitHubError.network("offline")
+    await controller.selectRepo(controller.repos[0])
+    #expect(controller.branchesFailed && controller.branches.isEmpty && !controller.branchesLoading)
+    #expect(controller.message?.isError == true)
+    api.failure = nil
+    await controller.refreshBranches()
+    #expect(!controller.branchesFailed && names(controller.branches).contains("feature/login"))
+}
+
+@Test @MainActor func aRefreshThatFailsLeavesTheListAlreadyShownAlone() async {
+    let api = FakeGitHub()
+    let (controller, _, _, _) = await withRepo(api)
+    let before = names(controller.branches)
+    api.failure = GitHubError.network("offline")
+    await controller.refreshBranches()
+    #expect(names(controller.branches) == before && !controller.branchesFailed && !controller.branchesLoading)
+    #expect(controller.message?.isError == true)
+}
+
+@Test @MainActor func aLateRefreshForAnEarlierRepositoryIsIgnored() async {
+    let api = FakeGitHub()
+    let (controller, _, _, _) = await withRepo(api)                         // acme/app, with its four branches
+    let gate = SearchGate()
+    api.branchesGate = (repo: "acme/app", gate: gate)
+    let refreshing = Task { @MainActor in await controller.refreshBranches() }
+    for _ in 0..<200 where api.calls.filter({ $0 == "recent:acme/app:20" }).count < 2 { try? await Task.sleep(nanoseconds: 5_000_000) }
+    api.branchList = [GitHubBranch(name: "blog-main")]
+    await controller.selectRepo(controller.repos[3])                       // octocat/blog, while acme/app's answer is still on its way
+    await gate.open()
+    await refreshing.value
+    #expect(controller.repo?.fullName == "octocat/blog" && names(controller.branches) == ["blog-main", "master"])   // the default branch is always offered
+    #expect(!controller.branchesLoading)
+}
+
+@Test @MainActor func refreshingDoesNothingWithoutAChosenRepository() async {
+    let (controller, api, _, _) = await connected()
+    await controller.refreshBranches()
+    #expect(!api.calls.contains { $0.hasPrefix("recent:") || $0.hasPrefix("search-branches:") })
+}
+
+// MARK: The files a pull request changes
+
+private func sampleFiles() -> [GitHubChangedFile] {
+    [GitHubChangedFile(filename: "Sources/App.swift", status: .modified, additions: 3, deletions: 1,
+         hunks: GitHubDiff.hunks(fromPatch: "@@ -1,2 +1,4 @@\n a\n-b\n+c\n+d\n+e")),
+     GitHubChangedFile(filename: "logo.png", status: .added)]
+}
+
+@Test @MainActor func openingAPullRequestDoesNotLoadItsFilesUntilTheyAreAskedFor() async {
+    let api = FakeGitHub()
+    api.files[7] = sampleFiles()
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(pull(7, "Change"))
+    #expect(controller.reviewFiles == .idle)
+    #expect(!api.calls.contains { $0.hasPrefix("files:") })
+}
+
+@Test @MainActor func askingForTheFilesLoadsThemOnceForTheOpenReview() async {
+    let api = FakeGitHub()
+    api.files[7] = sampleFiles()
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(pull(7, "Change"))
+    await controller.loadReviewFiles()
+    #expect(controller.reviewFiles == .loaded(sampleFiles()))
+    await controller.loadReviewFiles()
+    await controller.loadReviewFiles()
+    #expect(api.calls.filter { $0 == "files:acme/app#7" }.count == 1)
+}
+
+@Test @MainActor func askingForFilesWithNoReviewOpenOrNoConnectionDoesNothing() async {
+    let (disconnected, api, _, _) = make()
+    await disconnected.loadReviewFiles()
+    let (controller, api2, _, _) = await connected()
+    await controller.loadReviewFiles()
+    #expect(disconnected.reviewFiles == .idle && controller.reviewFiles == .idle)
+    #expect(!api.calls.contains { $0.hasPrefix("files:") } && !api2.calls.contains { $0.hasPrefix("files:") })
+}
+
+@Test @MainActor func theFilesOfAPullRequestThatWasLeftAreNeverShownForTheNextOne() async {
+    let api = FakeGitHub()
+    api.files[7] = sampleFiles()
+    api.files[8] = [GitHubChangedFile(filename: "other.txt")]
+    let gate = SearchGate()
+    api.filesGate = gate
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(pull(7, "First"))
+    let loading = Task { @MainActor in await controller.loadReviewFiles() }
+    for _ in 0..<200 where !api.calls.contains("files:acme/app#7") { try? await Task.sleep(nanoseconds: 5_000_000) }
+    #expect(controller.reviewFiles == .loading)
+    await controller.openReview(pull(8, "Second"))                         // another pull request is opened while the first one's files are on their way
+    #expect(controller.reviewFiles == .idle)
+    await gate.open()
+    await loading.value
+    #expect(controller.reviewFiles == .idle)                               // the late answer belonged to the first one
+    await controller.loadReviewFiles()
+    #expect(controller.reviewFiles == .loaded([GitHubChangedFile(filename: "other.txt")]))
+}
+
+@Test @MainActor func aFailedLoadOfTheFilesSaysSoAndCanBeAskedAgain() async {
+    let api = FakeGitHub()
+    api.files[7] = sampleFiles()
+    api.filesFailure = GitHubError.server(500)
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(pull(7, "Change"))
+    await controller.loadReviewFiles()
+    #expect(controller.reviewFiles == .failed && controller.message?.isError == true)
+    api.filesFailure = nil
+    await controller.loadReviewFiles()
+    #expect(controller.reviewFiles == .loaded(sampleFiles()))
+}
+
+@Test @MainActor func aLoadThatWasCancelledLeavesTheFilesAskableAgain() async {
+    let api = FakeGitHub()
+    api.files[7] = sampleFiles()
+    api.filesFailure = CancellationError()
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(pull(7, "Change"))
+    await controller.loadReviewFiles()                                     // the panel got small again while they loaded
+    #expect(controller.reviewFiles == .idle && controller.message == nil)
+    api.filesFailure = nil
+    await controller.loadReviewFiles()
+    #expect(controller.reviewFiles == .loaded(sampleFiles()))
+}
+
+@Test @MainActor func leavingTheReviewForgetsItsFiles() async {
+    let api = FakeGitHub()
+    api.files[7] = sampleFiles()
+    let (controller, _, _, _) = await connected(api)
+    await controller.openReview(pull(7, "Change"))
+    await controller.loadReviewFiles()
+    controller.closeReview()
+    #expect(controller.reviewFiles == .idle)
+    await controller.openReview(pull(7, "Change"))
+    #expect(controller.reviewFiles == .idle)                               // opened again: asked for again, not remembered
+}
+
+// MARK: Searching the branches that are not among the recent ones
+
+private func searches(_ api: FakeGitHub) -> [String] { api.calls.filter { $0.hasPrefix("search-branches:") } }
+
+/// Waits for something a pause away.
+@MainActor private func soon(_ condition: () -> Bool) async -> Bool {
+    for _ in 0..<400 where !condition() { try? await Task.sleep(nanoseconds: 10_000_000) }
+    return condition()
+}
+
+@MainActor private func withLongTail() async -> (GitHubController, FakeGitHub) {
+    let api = FakeGitHub()
+    api.branchList = [GitHubBranch(name: "main"), GitHubBranch(name: "feature/login"), GitHubBranch(name: "bugfix")]
+    api.searchPool = [GitHubBranch(name: "release/2023-old"), GitHubBranch(name: "feature/payments-old"), GitHubBranch(name: "hotfix/Login-typo")]
+    let (controller, _, _, _) = await withRepo(api)
+    return (controller, api)
+}
+
+@Test @MainActor func aRepositoryOpensWithOnlyTheTwentyMostRecentlyPushedBranchesAndNeverLoadsThemAll() async {
+    let api = FakeGitHub()
+    api.branchList = (1...60).map { GitHubBranch(name: "branch-\($0)") }
+    api.pushes = Dictionary(uniqueKeysWithValues: (1...60).map { ("branch-\($0)", clock.addingTimeInterval(-Double($0) * 60)) })
+    let (controller, _, _, _) = await withRepo(api)
+    #expect(api.calls.contains("recent:acme/app:20"))
+    #expect(controller.branches.count == 21)                                                   // twenty, and the default branch (main)
+    #expect(names(controller.branches).prefix(3) == ["branch-1", "branch-2", "branch-3"])      // newest first
+    #expect(!names(controller.branches).contains("branch-21") && names(controller.branches).contains("main"))
+}
+
+@Test @MainActor func theDefaultBranchIsOfferedEvenWhenItIsNotAmongTheRecentOnes() async {
+    let api = FakeGitHub()
+    api.branchList = [GitHubBranch(name: "only-recent")]
+    let (controller, _, _, _) = await withRepo(api)
+    #expect(names(controller.branches) == ["only-recent", "main"])
+    #expect(names(controller.branches(matching: "", excludingBase: false)) == ["main", "only-recent"])      // first in the "into" list
+}
+
+@Test @MainActor func typingOnlyAsksGitHubOncePerPauseAndNotBeforeTheDelay() async {
+    let (controller, api) = await withLongTail()
+    controller.branchQueryChanged("o")
+    controller.branchQueryChanged("ol")
+    controller.branchQueryChanged("old")
+    #expect(controller.branchSearching && searches(api).isEmpty)                  // nothing is sent while the typing goes on
+    let answered = await soon { !controller.branchSearching }
+    #expect(answered)
+    #expect(searches(api) == ["search-branches:old"])                              // one question, for what was typed in the end
+    #expect(controller.branchSearchQuery == "old" && names(controller.branchSearchResults) == ["feature/payments-old", "release/2023-old"])
+}
+
+@Test @MainActor func theSearchWaitsTheFullDelayBeforeAsking() async {
+    let api = FakeGitHub()
+    api.searchPool = [GitHubBranch(name: "release/2023-old")]
+    let controller = GitHubController(api: api, tokens: FakeTokens(stored: "tok"), now: { clock }, refreshInterval: 0, branchSearchDelay: 0.5)
+    await controller.start()
+    await controller.selectRepo(controller.repos[0])
+    controller.branchQueryChanged("old")
+    try? await Task.sleep(nanoseconds: 250_000_000)
+    #expect(searches(api).isEmpty && controller.branchSearching)                   // half the delay: still waiting
+    #expect(await soon { !searches(api).isEmpty })
+    #expect(await soon { !controller.branchSearching })
+}
+
+@Test @MainActor func whatIsFoundIsShownBesideTheRecentBranchesWithoutDuplicatesAndInTheRightOrder() async {
+    let (controller, api) = await withLongTail()
+    api.pushes = ["feature/login": clock, "bugfix": clock.addingTimeInterval(-60)]
+    await controller.refreshBranches()
+    controller.branchQueryChanged("login")
+    #expect(await soon { !controller.branchSearching })
+    // "feature/login" is a recent branch and also came back from the search: once. Then GitHub's others, alphabetically.
+    #expect(names(controller.branches(matching: "login", excludingBase: true, recentFirst: true)) == ["feature/login", "hotfix/Login-typo"])
+    // Before the answer arrives (or for other text) only the recent ones are filtered.
+    #expect(names(controller.branches(matching: "payments", excludingBase: true, recentFirst: true)).isEmpty)
+    #expect(controller.branches.count == 3)                                          // the search added nothing to the list itself
+}
+
+@Test @MainActor func theSearchIsCaseBlindAndIgnoresSurroundingSpaces() async {
+    let (controller, api) = await withLongTail()
+    controller.branchQueryChanged("  LOGIN ")
+    #expect(await soon { !controller.branchSearching })
+    #expect(searches(api) == ["search-branches:login"])
+    #expect(names(controller.branches(matching: " Login", excludingBase: true)).contains("hotfix/Login-typo"))
+}
+
+@Test @MainActor func askingAgainForTheSameTextDoesNotAskGitHubAgain() async {
+    let (controller, api) = await withLongTail()
+    controller.branchQueryChanged("old")
+    #expect(await soon { !controller.branchSearching })
+    controller.branchQueryChanged("old")
+    controller.branchQueryChanged(" OLD ")
+    #expect(!controller.branchSearching)
+    try? await Task.sleep(nanoseconds: 300_000_000)
+    #expect(searches(api).count == 1)
+}
+
+@Test @MainActor func clearingTheBoxForgetsTheSearchAndCancelsOneThatIsWaiting() async {
+    let (controller, api) = await withLongTail()
+    controller.branchQueryChanged("old")
+    controller.branchQueryChanged("")
+    #expect(!controller.branchSearching && controller.branchSearchQuery.isEmpty)
+    try? await Task.sleep(nanoseconds: 350_000_000)
+    #expect(searches(api).isEmpty)                                                    // the waiting search never went out
+    controller.branchQueryChanged("old")
+    #expect(await soon { !controller.branchSearching })
+    controller.branchQueryChanged("   ")
+    #expect(controller.branchSearchResults.isEmpty && controller.branchSearchQuery.isEmpty)
+}
+
+@Test @MainActor func closingTheListEndsTheSearchAndKeepsNothingOfIt() async {
+    let (controller, api) = await withLongTail()
+    controller.branchQueryChanged("old")
+    controller.endBranchSearch()                                                      // the picker closed while the search waited
+    try? await Task.sleep(nanoseconds: 350_000_000)
+    #expect(searches(api).isEmpty && !controller.branchSearching)
+    controller.branchQueryChanged("old")
+    #expect(await soon { !controller.branchSearching })
+    controller.endBranchSearch()                                                      // and once it had answered
+    #expect(controller.branchSearchResults.isEmpty && controller.branchSearchQuery.isEmpty)
+    #expect(names(controller.branches(matching: "old", excludingBase: true)).isEmpty)
+}
+
+@Test @MainActor func aLateAnswerToAnEarlierTextIsIgnored() async {
+    let (controller, api) = await withLongTail()
+    let gate = SearchGate()
+    api.branchSearchGates["old"] = gate                                               // only "old" is slow
+    controller.branchQueryChanged("old")
+    #expect(await soon { searches(api) == ["search-branches:old"] })                  // asked, and its answer is held back
+    controller.branchQueryChanged("login")                                            // the person kept typing; this one answers at once
+    #expect(await soon { controller.branchSearchQuery == "login" && !controller.branchSearching })
+    await gate.open()                                                                 // now the slow answer, for text no longer typed, arrives
+    try? await Task.sleep(nanoseconds: 300_000_000)
+    #expect(controller.branchSearchQuery == "login")
+    #expect(names(controller.branchSearchResults) == ["feature/login", "hotfix/Login-typo"])      // not "old"'s
+}
+
+@Test @MainActor func aSearchThatFailsSaysSoKeepsTheRecentBranchesAndCanBeTriedAgain() async {
+    let (controller, api) = await withLongTail()
+    api.searchFailure = GitHubError.network("offline")
+    controller.branchQueryChanged("old")
+    #expect(await soon { controller.branchSearchFailed })
+    #expect(!controller.branchSearching && controller.message?.isError == true)
+    #expect(names(controller.branches).contains("feature/login"))                    // the recent branches are untouched
+    api.searchFailure = nil
+    controller.branchQueryChanged("old")                                              // "Try again": the same text, asked again
+    #expect(await soon { !controller.branchSearching })
+    #expect(!controller.branchSearchFailed && names(controller.branchSearchResults).contains("release/2023-old"))
+}
+
+@Test @MainActor func aSearchForAnotherRepositoryOrWithoutOneDoesNothing() async {
+    let (idle, api, _, _) = await connected()
+    idle.branchQueryChanged("old")                                                    // no repository chosen yet
+    try? await Task.sleep(nanoseconds: 350_000_000)
+    #expect(searches(api).isEmpty && idle.branchSearchResults.isEmpty)
+
+    let (controller, api2) = await withLongTail()
+    controller.branchQueryChanged("old")
+    #expect(await soon { !controller.branchSearching })
+    await controller.selectRepo(controller.repos[3])                                  // another repository: nothing of the search stays
+    #expect(controller.branchSearchResults.isEmpty && controller.branchSearchQuery.isEmpty && !controller.branchSearching)
+    _ = api2
+}
+
+@Test @MainActor func aBranchChosenFromTheSearchJoinsTheListAndIsKeptWhenItIsRefreshed() async {
+    let (controller, _) = await withLongTail()
+    controller.branchQueryChanged("payments")
+    #expect(await soon { !controller.branchSearching })
+    await controller.selectHead("feature/payments-old")
+    #expect(controller.head == "feature/payments-old" && names(controller.branches).contains("feature/payments-old"))
+    await controller.refreshBranches()                                                // the recent list no longer has it; the choice does
+    #expect(controller.head == "feature/payments-old" && names(controller.branches).contains("feature/payments-old"))
+}
+
+@Test @MainActor func aSearchMatchingNothingIsAnAnswerNotAFailure() async {
+    let (controller, api) = await withLongTail()
+    controller.branchQueryChanged("zzz-no-such-branch")
+    #expect(await soon { !controller.branchSearching })
+    #expect(searches(api) == ["search-branches:zzz-no-such-branch"])
+    #expect(controller.branchSearchResults.isEmpty && !controller.branchSearchFailed && controller.message == nil)
+    #expect(names(controller.branches(matching: "zzz-no-such-branch", excludingBase: true)).isEmpty)
 }

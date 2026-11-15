@@ -85,6 +85,16 @@ Read what the Mac is doing at any time with `pmset -g | grep SleepDisabled` (1 =
 - [ ] Right-click: Show in Finder and Unpin.
 - [ ] Move an app out of its folder: its tile dims and clicking explains.
 
+## Focus mode
+
+- [ ] Open the island and click the **card button** (next to Max). Everything else on the screen blurs and dims, and the island becomes a big black card in the middle of the screen (95% of the width, as tall as fits below the notch), with a visible gap of blurred background between the notch and the top of the card: they must not run together. On a display without a notch the card sits just below the menu bar. The tabs work in it as usual (try the Tools and Browser tabs, and typing in a text box).
+- [ ] Press **Esc**: the blur goes, and the island is back as it was (if you had it open it is open, then closes by itself when the pointer is away; if it was pinned or Max it still is). The app you were working in has the keyboard again: type a letter and it lands there.
+- [ ] Do it again and click on the blur outside the card (top, bottom, a corner): same result, and the click does not reach the app underneath (nothing there is clicked or selected).
+- [ ] Press **⌘Tab** to another app while it is on: focus mode ends and that app keeps the keyboard.
+- [ ] Try it while an app is in full screen (its own space): the blur and the card appear over it, and Esc brings you back to it. Try it with a second display plugged in: only the island's own display is blurred.
+- [ ] In focus mode, Tools ▸ Tap gestures ▸ choose an app: the file chooser opens in front of the card. In the Browser tab a page's alert (any site that shows one) also appears in front. The gear menu ▸ Settings… ends focus mode and opens Settings.
+- [ ] Max and Pin are not shown in focus mode; the card button is highlighted, and clicking it leaves too. Esc inside a text box leaves focus mode as well (that is on purpose).
+
 ## Slide gestures (Tools tab)
 
 These need a real trackpad and your fingers, so they can only be checked by hand. The gestures are on from the start; the switch in the popup turns them off.
@@ -105,9 +115,10 @@ Taps are on from the start, with nothing assigned. These need a real trackpad an
 
 - [ ] Click the blue **Tap gestures** tile (it has its own popup and its own on/off switch, apart from Slide gestures): four cards (three fingers and four fingers, double tap and triple tap) each say "Not set". With the popup open, tap the pad with three fingers twice: the "Three fingers, double tap" card lights up (after a moment, because a triple tap is also possible) and is selected, and nothing else happens. Do the same for the other three.
 - [ ] Choose **Take a screenshot** for the three-finger double tap, close the popup, and tap with three fingers twice: the screenshot tools open. A single three-finger tap, a two-finger tap, a four-finger tap, three-finger swipes and normal clicking do nothing.
-- [ ] Tap and hold: choose an action for **Three fingers, tap and hold** (the third card on the top row), put three fingers down together and keep them still. After about a second and a half the action runs while your fingers are still down, and only once however long you hold. Lifting early, moving the fingers, putting them down one after another, or using two or five fingers does nothing. Do the same with four fingers on the bottom row. With the popup open, a hold selects its card even if nothing is set for it.
+- [ ] Tap and hold: choose an action for **Three fingers, tap and hold** (the third card on the top row), put three fingers down together and keep them still. After about a second the action runs while your fingers are still down, and only once however long you hold. Lifting early, moving the fingers, putting them down one after another, or using two or five fingers does nothing. Do the same with four fingers on the bottom row. With the popup open, a hold selects its card even if nothing is set for it.
 - [ ] Give the triple tap another job: the double tap now waits a third of a second to see if a third tap comes, and a triple tap does only the triple tap's job.
 - [ ] Each action, once: Take a screenshot (the screenshot tools open), Mission Control, Open an app (Choose an app… and pick one; it opens or comes to the front), Run a Shortcut (the list shows your Shortcuts; one with Set Focus turns Do Not Disturb on and off), Lock the screen, Start the screen saver, Turn off the display, Mute or unmute, Play or pause (with something playing).
+- [ ] Full screen on or off: choose it for a tap (**Allow in Accessibility…** if the popup asks), close the popup, work in an app with a normal window (Safari, Finder, Notes) and make that tap: the app goes into full screen. The same tap again brings it back. Try it with the app already in full screen first, with Finder showing no window (it says there is no window), and in an app whose window has no green button (it says the window can't go full screen). Without the permission the indicator says so.
 - [ ] Copy and Paste: the popup says to allow Island in Accessibility; allow it (System Settings ▸ Privacy & Security ▸ Accessibility; it may need allowing again after Island is updated). Select text, tap to copy, click in another place, tap to paste. Without the permission the indicator says so.
 - [ ] If macOS's own "Look up & data detectors" is set to three-finger tap, the popup warns about it on the three-finger cards.
 - [ ] Switch the Taps switch off: no tap does anything, and the choices are still there when it is switched on again. Quit and open Island: the choices are kept.

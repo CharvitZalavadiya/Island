@@ -48,6 +48,51 @@ struct RootView: View {
     let services: IslandServices
 
     var body: some View {
+        if model.isFocusView {
+            focusCard
+        } else {
+            islandBody
+        }
+    }
+
+    /// Focus mode: the island as a big rounded card, not hanging from the notch. Everything around it is blurred by the panel
+    /// controller's backdrop; the card's own black fill and thin edge keep it clear of that.
+    private var focusCard: some View {
+        FocusCard(size: model.contentSize) {
+            VStack(spacing: 10) {
+                TabBar(model: model, openSettings: openSettings, updateVersion: services.update.availableVersion?.description)
+                tabView(for: model.selectedTab, services: services)
+            }
+        }
+        .overlay(alignment: .top) { openAlert(topPadding: 30) }
+        .preferredColorScheme(.dark)
+    }
+
+    /// The settings window opens behind the focus card, so focus mode ends first.
+    private func openSettings() {
+        model.isFocusView = false
+        services.showSettings()
+    }
+
+    /// An alert that arrives while the island is open sits over the top of it; clicking it dismisses it.
+    @ViewBuilder
+    private func openAlert(topPadding: CGFloat) -> some View {
+        if let banner = model.alert {
+            AlertBanner(alert: banner, onJoin: { join($0) })
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(width: 340)
+                .background(RoundedRectangle(cornerRadius: 16).fill(Color(white: 0.13)))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                .shadow(color: .black.opacity(0.5), radius: 8, y: 3)
+                .padding(.top, topPadding)
+                .contentShape(Rectangle())
+                .onTapGesture { services.alerts.dismissNow() }
+        }
+    }
+
+    @ViewBuilder
+    private var islandBody: some View {
         let expanded = model.mode == .expanded
         // While an event is announced the closed island is a small banner, shaped like the open one.
         let banner = model.alert
@@ -58,7 +103,7 @@ struct RootView: View {
                 .animation(.easeInOut(duration: 0.2), value: expanded)
             if expanded {
                 VStack(spacing: 10) {
-                    TabBar(model: model, openSettings: { services.showSettings() }, updateVersion: services.update.availableVersion?.description)
+                    TabBar(model: model, openSettings: openSettings, updateVersion: services.update.availableVersion?.description)
                     tabView(for: model.selectedTab, services: services)
                 }
                 .padding(.top, model.topInset + 6)
@@ -83,19 +128,7 @@ struct RootView: View {
         }
         .animation(.easeOut(duration: 0.25), value: expanded)
         .overlay(alignment: .top) {
-            // An alert that arrives while the island is open sits over the top of it; clicking it dismisses it.
-            if expanded, let banner {
-                AlertBanner(alert: banner, onJoin: { join($0) })
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .frame(width: 340)
-                    .background(RoundedRectangle(cornerRadius: 16).fill(Color(white: 0.13)))
-                    .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.12), lineWidth: 1))
-                    .shadow(color: .black.opacity(0.5), radius: 8, y: 3)
-                    .padding(.top, model.topInset + 6)
-                    .contentShape(Rectangle())
-                    .onTapGesture { services.alerts.dismissNow() }
-            }
+            if expanded { openAlert(topPadding: model.topInset + 6) }
         }
         .preferredColorScheme(.dark)
     }
@@ -104,5 +137,26 @@ struct RootView: View {
     private func join(_ link: MeetingLink) {
         JoinButton.open(link)
         services.alerts.dismissNow()
+    }
+}
+
+/// The look of focus mode's card: black like the island, rounded all round, with a thin edge to keep it clear of the blur behind.
+struct FocusCard<Content: View>: View {
+    let size: CGSize
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 30, style: .continuous)
+        ZStack(alignment: .top) {
+            shape.fill(Color.black)
+            shape.strokeBorder(.white.opacity(0.14), lineWidth: 1)
+            content
+                // The card itself hangs below the notch (the panel controller sizes it so), so this is just the usual padding.
+                .padding(.top, 20)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 24)
+                .frame(width: size.width, height: size.height, alignment: .top)
+        }
+        .frame(width: size.width, height: size.height)
     }
 }

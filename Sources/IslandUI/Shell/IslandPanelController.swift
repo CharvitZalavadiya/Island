@@ -11,7 +11,7 @@ final class IslandPanel: NSPanel {
             backing: .buffered,
             defer: false)
         isFloatingPanel = true
-        level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
+        level = IslandWindowLevel.island
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         backgroundColor = .clear
         isOpaque = false
@@ -95,6 +95,8 @@ public final class IslandPanelController: NSObject {
     private var machine: ExpansionStateMachine
     private let panel = IslandPanel()
     private let content = PanelContentView(frame: .zero)
+    /// Focus mode's blurred backdrop and keyboard handling (see `FocusStage`).
+    private let focusStage = FocusStage()
     private var collapseTimer: Timer?
     /// Runs only while the island is open or pinned, to notice Mission Control appearing over it (or going away).
     private var suspensionTimer: Timer?
@@ -115,6 +117,8 @@ public final class IslandPanelController: NSObject {
         let settings = model.settings.settings
         machine = ExpansionStateMachine(hoverOpens: settings.hoverOpens, collapseDelay: settings.collapseDelay)
         super.init()
+        // Escape or a click outside the card ended focus mode: clearing the flag puts the island back as it was.
+        focusStage.onExit = { [weak self] in self?.model.isFocusView = false }
 
         let hosting = NSHostingView(rootView: RootView(model: model, services: services))
         hosting.sizingOptions = []
@@ -150,7 +154,7 @@ public final class IslandPanelController: NSObject {
         // Dragging files toward the notch opens the island on the Shelf tab (whatever tab it was on, even if it is
         // already open or pinned), and dropping them stashes them. With the Shelf tab switched off, nothing happens.
         content.onDragEntered = { [weak self] in
-            guard let self, self.model.acceptsFileDrops else { return }
+            guard let self, self.model.acceptsFileDrops, !self.model.isFocusView else { return }
             self.refreshSuspension()
             self.model.fileDragEntered()
             self.send(.clicked)
@@ -214,6 +218,9 @@ public final class IslandPanelController: NSObject {
 
     /// The single place the pointer state changes, whether the news came from the tracking area or the monitors.
     private func setPointerOverIsland(_ inside: Bool) {
+        // In focus mode the island is not under the pointer's control: what it knew before stays, and the first movement after
+        // focus mode ends puts it right (it closes after its usual delay if the pointer is not over it).
+        guard !model.isFocusView else { return }
         guard inside != pointerIsOverIsland else { return }
         pointerIsOverIsland = inside
         if inside {
@@ -278,7 +285,7 @@ public final class IslandPanelController: NSObject {
         case .nothing:
             break
         case .nearNotch:
-            guard model.mode == .collapsed, model.acceptsFileDrops else { return }
+            guard model.mode == .collapsed, model.acceptsFileDrops, !model.isFocusView else { return }
             refreshSuspension()
             guard !machine.isSuspended else { return }
             model.fileDragEntered()
@@ -295,6 +302,8 @@ public final class IslandPanelController: NSObject {
     // MARK: Expansion
 
     private func send(_ event: ExpansionEvent) {
+        // The island's open or closed state does not change while focus mode shows, so it is the same when focus mode ends.
+        guard !model.isFocusView else { return }
         apply(machine.handle(event))
     }
 
@@ -378,24 +387,32 @@ public final class IslandPanelController: NSObject {
         model.topInset = notch.height
 
         let frame: CGRect
-        switch model.mode {
-        case .collapsed:
-            if model.alert != nil {
-                frame = NotchGeometry.alertFrame(notch: notch, screenFrame: screen.frame, size: NotchGeometry.alertSize)
-            } else {
-                let wings = WingLayout.widths(for: model.activities)
-                frame = NotchGeometry.collapsedFrame(
-                    notch: notch, screenFrame: screen.frame, leftWing: wings.left, rightWing: wings.right)
+        if model.isFocusView {
+            // A big card in the middle of the screen, hanging clear below the notch (it ran into the notch when it was centred in
+            // the whole screen); the content is laid out at that size.
+            frame = NotchGeometry.focusFrame(screenFrame: screen.frame, topInset: notch.height)
+            if model.contentSize != frame.size { model.contentSize = frame.size }
+            focusStage.move(to: screen.frame)
+        } else {
+            switch model.mode {
+            case .collapsed:
+                if model.alert != nil {
+                    frame = NotchGeometry.alertFrame(notch: notch, screenFrame: screen.frame, size: NotchGeometry.alertSize)
+                } else {
+                    let wings = WingLayout.widths(for: model.activities)
+                    frame = NotchGeometry.collapsedFrame(
+                        notch: notch, screenFrame: screen.frame, leftWing: wings.left, rightWing: wings.right)
+                }
+            case .expanded:
+                // Max mode is most of the screen; the content is laid out at that size too (RootView reads it from the model).
+                let size = model.isMax
+                    ? NotchGeometry.maxSize(screenFrame: screen.frame, minimum: IslandMetrics.expandedSize)
+                    : IslandMetrics.expandedSize
+                if model.contentSize != size { model.contentSize = size }
+                frame = NotchGeometry.expandedFrame(notch: notch, screenFrame: screen.frame, size: size)
             }
-        case .expanded:
-            // Max mode is most of the screen; the content is laid out at that size too (RootView reads it from the model).
-            let size = model.isMax
-                ? NotchGeometry.maxSize(screenFrame: screen.frame, minimum: IslandMetrics.expandedSize)
-                : IslandMetrics.expandedSize
-            if model.contentSize != size { model.contentSize = size }
-            frame = NotchGeometry.expandedFrame(notch: notch, screenFrame: screen.frame, size: size)
         }
-        content.interceptsMouse = model.mode == .collapsed
+        content.interceptsMouse = model.mode == .collapsed && !model.isFocusView
         if panel.frame != frame {
             setPanelFrame(frame)
         }
@@ -410,6 +427,7 @@ public final class IslandPanelController: NSObject {
             _ = model.settings.settings
             _ = model.isPinned
             _ = model.isMax
+            _ = model.isFocusView
         } onChange: { [weak self] in
             // `onChange` fires before the new value lands, so hop to the next main-actor turn.
             Task { @MainActor [weak self] in
@@ -420,6 +438,7 @@ public final class IslandPanelController: NSObject {
     }
 
     private func modelDidChange() {
+        syncFocusStage()
         let settings = model.settings.settings
         machine.hoverOpens = settings.hoverOpens
         machine.collapseDelay = settings.collapseDelay
@@ -428,11 +447,27 @@ public final class IslandPanelController: NSObject {
         updateFrame()
     }
 
+    // MARK: Focus mode
+
+    /// Starts or ends the blurred stage so it matches `model.isFocusView` (the stage ends itself on Escape or a click outside,
+    /// and clears the flag; a button clears it too, and then the stage is ended here).
+    private func syncFocusStage() {
+        if model.isFocusView, !focusStage.isShowing {
+            guard let screen = targetScreen() else {
+                model.isFocusView = false
+                return
+            }
+            focusStage.show(panel: panel, over: screen.frame)
+        } else if !model.isFocusView, focusStage.isShowing {
+            focusStage.hide(restoreFocus: true)
+        }
+    }
+
     // MARK: Swipe between tabs
 
     private func handleScroll(_ event: NSEvent) {
         // Sideways scrolling belongs to the page while the Browser tab is open.
-        guard event.window === panel, model.mode == .expanded, model.selectedTab != .browser else { return }
+        guard event.window === panel, model.mode == .expanded || model.isFocusView, model.selectedTab != .browser else { return }
         if event.phase == .began {
             scrollAccumulator = 0
             scrollDidSwitch = false

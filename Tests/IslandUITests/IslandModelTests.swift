@@ -17,6 +17,17 @@ private func makeModel() -> IslandModel {
     #expect(model.activities.isEmpty)
 }
 
+@Test @MainActor func focusModeIsOffAtLaunchAndNeverChangesTheIslandsOwnState() {
+    let model = makeModel()
+    #expect(!model.isFocusView)
+    model.isMax = true
+    model.isPinned = true
+    model.selectedTab = .tools
+    model.isFocusView = true
+    model.isFocusView = false
+    #expect(model.mode == .collapsed && model.isMax && model.isPinned && model.selectedTab == .tools)
+}
+
 @Test @MainActor func setActivityAddsAndRemoves() {
     let model = makeModel()
     model.setActivity(.pomodoro, active: true)

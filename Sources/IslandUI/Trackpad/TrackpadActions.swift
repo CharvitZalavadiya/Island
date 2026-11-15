@@ -21,7 +21,7 @@ protocol TrackpadActionPerforming: AnyObject {
 }
 
 /// The real thing. Most actions open one of macOS's own apps, run one of its command-line tools, or call one of its libraries,
-/// and so need no permission; only copy and paste (which press keys) need Accessibility.
+/// and so need no permission; only copy and paste (which press keys) and full screen (which asks another app's window) need Accessibility.
 @MainActor
 final class SystemActionRunner: TrackpadActionPerforming {
     private let nowPlaying: NowPlayingController?
@@ -46,6 +46,8 @@ final class SystemActionRunner: TrackpadActionPerforming {
             return open("/System/Applications/Utilities/Screenshot.app")    // the same screenshot tools as Shift-Command-5
         case .missionControl:
             return open("/System/Applications/Mission Control.app")
+        case .fullScreen:
+            return fullScreen()
         case .openApp:
             guard let app else { return .unavailable("Choose an app first") }
             return open(app)
@@ -73,6 +75,21 @@ final class SystemActionRunner: TrackpadActionPerforming {
         }
         NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: NSWorkspace.OpenConfiguration()) { _, _ in }
         return .done
+    }
+
+    /// Puts the window you are working in into full screen, or back out of it. Island's own panel never takes the focus, so the
+    /// app in front is the one you are in.
+    private func fullScreen() -> TapActionResult {
+        guard hasAccessibility else {
+            requestAccessibility()
+            return .needsAccessibility
+        }
+        guard let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != ProcessInfo.processInfo.processIdentifier
+        else { return .unavailable("No app to put in full screen") }
+        guard let window = AccessibilityWindow.window(ofProcess: app.processIdentifier) else {
+            return .unavailable("\(app.localizedName ?? "That app") has no window to put in full screen")
+        }
+        return FullScreenToggle.toggle(window)
     }
 
     /// Starts a tool and does not wait for it.

@@ -8,7 +8,8 @@ struct TabBar: View {
     var updateVersion: String?
 
     var body: some View {
-        HStack(spacing: 4) {
+        // 13 tab icons and four buttons must fit the usual island's width (see IslandMetrics.expandedSize).
+        HStack(spacing: 3) {
             ForEach(model.orderedTabs, id: \.self) { tab in
                 Button {
                     model.selectedTab = tab
@@ -24,28 +25,46 @@ struct TabBar: View {
                 .help(tab.title)
             }
             Spacer(minLength: 0)
+            // Max and Pin are about the island hanging from the notch; they mean nothing in focus mode.
+            if !model.isFocusView {
+                Button {
+                    model.isMax.toggle()
+                } label: {
+                    Image(systemName: model.isMax ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        .foregroundStyle(model.isMax ? IslandTheme.accent : Color.white)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusable(false)
+                .help(model.isMax ? "Back to the usual size" : "Max: open the island big, on most of the screen")
+            }
             Button {
-                model.isMax.toggle()
+                model.isFocusView.toggle()
             } label: {
-                Image(systemName: model.isMax ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                    .foregroundStyle(model.isMax ? IslandTheme.accent : Color.white)
-                    .frame(width: 28, height: 26)
+                Image(systemName: "rectangle.center.inset.filled")
+                    .foregroundStyle(model.isFocusView ? IslandTheme.accent : Color.white)
+                    .frame(width: 26, height: 26)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .focusable(false)
-            .help(model.isMax ? "Back to the usual size" : "Max: open the island big, on most of the screen")
-            Button {
-                model.isPinned.toggle()
-            } label: {
-                Image(systemName: model.isPinned ? "pin.fill" : "pin")
-                    .foregroundStyle(model.isPinned ? IslandTheme.pin : Color.white)
-                    .frame(width: 28, height: 26)
-                    .contentShape(Rectangle())
+            .help(model.isFocusView
+                ? "Leave focus mode (or press Esc, or click outside)"
+                : "Focus mode: a big card in the middle of the screen, everything else blurred")
+            if !model.isFocusView {
+                Button {
+                    model.isPinned.toggle()
+                } label: {
+                    Image(systemName: model.isPinned ? "pin.fill" : "pin")
+                        .foregroundStyle(model.isPinned ? IslandTheme.pin : Color.white)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusable(false)
+                .help(model.isPinned ? "Unpin: let the island close again" : "Pin: keep the island open")
             }
-            .buttonStyle(.plain)
-            .focusable(false)
-            .help(model.isPinned ? "Unpin: let the island close again" : "Pin: keep the island open")
             Menu {
                 if let updateVersion {
                     Button("Update to \(updateVersion)…") { openSettings() }

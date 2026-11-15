@@ -36,7 +36,7 @@ public struct TrackpadTapTrigger: Hashable, Codable, Sendable {
 
 /// What a tap can do.
 public enum TrackpadTapAction: String, CaseIterable, Codable, Sendable {
-    case none, copy, paste, screenshot, missionControl, openApp, shortcut, lockScreen, screenSaver, displaySleep, mute, playPause
+    case none, copy, paste, screenshot, missionControl, fullScreen, openApp, shortcut, lockScreen, screenSaver, displaySleep, mute, playPause
 
     public var title: String {
         switch self {
@@ -45,6 +45,7 @@ public enum TrackpadTapAction: String, CaseIterable, Codable, Sendable {
         case .paste: "Paste"
         case .screenshot: "Take a screenshot"
         case .missionControl: "Mission Control"
+        case .fullScreen: "Full screen on or off"
         case .openApp: "Open an app"
         case .shortcut: "Run a Shortcut"
         case .lockScreen: "Lock the screen"
@@ -61,6 +62,7 @@ public enum TrackpadTapAction: String, CaseIterable, Codable, Sendable {
         case .none: "Not set"
         case .screenshot: "Screenshot"
         case .missionControl: "Mission Ctrl"
+        case .fullScreen: "Full screen"
         case .openApp: "Open app"
         case .shortcut: "Shortcut"
         case .lockScreen: "Lock screen"
@@ -79,6 +81,7 @@ public enum TrackpadTapAction: String, CaseIterable, Codable, Sendable {
         case .paste: "doc.on.clipboard"
         case .screenshot: "camera.viewfinder"
         case .missionControl: "rectangle.3.group"
+        case .fullScreen: "arrow.up.left.and.arrow.down.right"
         case .openApp: "macwindow"
         case .shortcut: "bolt.fill"
         case .lockScreen: "lock.fill"
@@ -89,8 +92,9 @@ public enum TrackpadTapAction: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// Copy and paste work by pressing the keys, which macOS only lets an app do once it has been allowed in Accessibility.
-    public var needsAccessibility: Bool { self == .copy || self == .paste }
+    /// Copy and paste work by pressing the keys, and full screen by asking the app's window to change, which macOS only lets an
+    /// app do once it has been allowed in Accessibility.
+    public var needsAccessibility: Bool { self == .copy || self == .paste || self == .fullScreen }
 }
 
 public enum TrackpadTapEvent: Equatable, Sendable {
@@ -98,7 +102,7 @@ public enum TrackpadTapEvent: Equatable, Sendable {
 }
 
 /// Decides, frame by frame, whether the fingers on the pad are tapping it: three or four of them landing together, staying put and
-/// lifting at once, twice or three times running; or landing together and staying put for a second and a half (a hold).
+/// lifting at once, twice or three times running; or landing together and staying put for a second (a hold).
 ///
 /// It is careful about what it is not: one or two fingers, five fingers (a palm), fingers that slide (a swipe), and fingers that
 /// land one after another all leave it alone, so the system's own gestures work as they do.
@@ -112,7 +116,7 @@ public struct TrackpadTapEngine {
     /// How far a finger may wander during a tap or a hold, in millimetres.
     public static let moveMM = 3.5
     /// Fingers that land together and stay put this long, from the first landing, are a hold.
-    public static let holdSeconds = 1.5
+    public static let holdSeconds = 1.0
 
     private struct Contact {
         var start: TimeInterval

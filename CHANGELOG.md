@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **Focus mode.** A new button in the tab bar (the card icon, next to Max) blurs and dims everything else on the screen and
+  shows the island as a big rounded card in the middle of it, 95% of the screen wide and hanging clear below the notch (with a
+  small gap, so the two never run together). Press **Esc** or click anywhere outside the card to leave, and the island is
+  exactly as it was before: closed, open, pinned or Max. Leaving Island for another app (⌘Tab) also ends it, and the keyboard
+  goes back to the app you were working in. Max and Pin are not shown while it is on. The tab bar is a point tighter to make
+  room for the new button.
+- **Dialogs come to the front.** The app chooser for tap gestures and a web page's alerts and file chooser in the Browser tab
+  now open above the island, so a big island (Max or Focus mode) can never hide one.
+- **Tap and hold is quicker.** Three or four fingers held still now run their action after one second, not a second and a half.
+- **Full screen on or off** (Tools tab, *Tap gestures*). A new action for any tap or hold: it puts the app you are working in
+  into full screen, and the same tap brings it back out. It uses the window's own full-screen setting (what the green button
+  does), so it works in any app that has one. Like Copy and Paste it needs Island to be allowed in Accessibility (macOS asks
+  once); without it the indicator says so, and a window that cannot go full screen is left alone.
+
 ## 1.3.1
 
 - **Tap and hold** (Tools tab, *Tap gestures*). Besides the double and triple taps, three fingers or four fingers put down

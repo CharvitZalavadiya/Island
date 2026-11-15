@@ -228,6 +228,7 @@ final class BrowserPage: Identifiable {
             let alert = NSAlert()
             alert.messageText = frame.request.url?.host ?? "This page says"
             alert.informativeText = message
+            alert.window.level = IslandWindowLevel.dialog   // above the island, which may be a big card in focus mode
             alert.runModal()
             completionHandler()
         }
@@ -238,6 +239,7 @@ final class BrowserPage: Identifiable {
             alert.informativeText = message
             alert.addButton(withTitle: "OK")
             alert.addButton(withTitle: "Cancel")
+            alert.window.level = IslandWindowLevel.dialog
             completionHandler(alert.runModal() == .alertFirstButtonReturn)
         }
 
@@ -250,6 +252,7 @@ final class BrowserPage: Identifiable {
             let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
             field.stringValue = defaultText ?? ""
             alert.accessoryView = field
+            alert.window.level = IslandWindowLevel.dialog
             completionHandler(alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil)
         }
 
@@ -258,6 +261,7 @@ final class BrowserPage: Identifiable {
             let panel = NSOpenPanel()
             panel.allowsMultipleSelection = parameters.allowsMultipleSelection
             panel.canChooseDirectories = parameters.allowsDirectories
+            panel.level = IslandWindowLevel.dialog
             panel.begin { response in
                 MainActor.assumeIsolated { completionHandler(response == .OK ? panel.urls : nil) }
             }

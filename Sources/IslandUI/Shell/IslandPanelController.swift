@@ -95,8 +95,11 @@ public final class IslandPanelController: NSObject {
     private var machine: ExpansionStateMachine
     private let panel = IslandPanel()
     private let content = PanelContentView(frame: .zero)
+    /// Taking the keyboard and giving it back, shared by focus mode and the island's own shortcuts.
+    private let activation: AppActivating
     /// Focus mode's blurred backdrop and keyboard handling (see `FocusStage`).
-    private let focusStage = FocusStage()
+    private let focusStage: FocusStage
+    private var keyboardMonitors: [Any] = []
     private var collapseTimer: Timer?
     /// Runs only while the island is open or pinned, to notice Mission Control appearing over it (or going away).
     private var suspensionTimer: Timer?
@@ -116,6 +119,9 @@ public final class IslandPanelController: NSObject {
         self.services = services
         let settings = model.settings.settings
         machine = ExpansionStateMachine(hoverOpens: settings.hoverOpens, collapseDelay: settings.collapseDelay)
+        let activation = SystemAppActivation(tracker: PreviousAppTracker())
+        self.activation = activation
+        focusStage = FocusStage(activation: activation)
         super.init()
         // Escape or a click outside the card ended focus mode: clearing the flag puts the island back as it was.
         focusStage.onExit = { [weak self] in self?.model.isFocusView = false }
@@ -171,6 +177,7 @@ public final class IslandPanelController: NSObject {
         observeModel()
         startPointerMonitoring()
         startFileDragMonitoring()
+        startKeyboardMonitoring()
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             MainActor.assumeIsolated { self?.handleScroll(event) }
             return event
@@ -324,7 +331,7 @@ public final class IslandPanelController: NSObject {
         if model.mode != machine.mode {
             model.mode = machine.mode
             // Opening the island is a good moment to re-read whether the Mac is being kept awake.
-            if machine.mode == .expanded { services.keepAwake.refresh() }
+            if machine.mode == .expanded { services.keepAwake.refresh() } else { giveKeyboardBack() }
         }
         updateSuspensionWatch()
     }
@@ -445,6 +452,51 @@ public final class IslandPanelController: NSObject {
         // Max mode is only a bigger size: the island still closes by itself when the pointer leaves, unless it is pinned.
         if model.isPinned != machine.isPinned { apply(machine.setPinned(model.isPinned)) }
         updateFrame()
+    }
+
+    // MARK: Keyboard shortcuts
+
+    /// The island only gets key presses while it has the keyboard, and it does not take it by itself: hovering the notch must
+    /// not steal the typing from the app you are in. So a click on the island takes the keyboard (as a click in any window
+    /// does), and the keyboard goes back to your app when the island closes. While it has the keyboard, F opens focus mode, M
+    /// switches Max, P pins, and ⌘, opens Settings (see `IslandShortcuts`).
+    private func startKeyboardMonitoring() {
+        guard keyboardMonitors.isEmpty else { return }
+        if let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            let consumed = MainActor.assumeIsolated { self?.handleShortcut(event) ?? false }
+            return consumed ? nil : event
+        }) { keyboardMonitors.append(keys) }
+        if let clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] event in
+            MainActor.assumeIsolated { self?.clickedIsland(event) }
+            return event
+        }) { keyboardMonitors.append(clicks) }
+    }
+
+    /// Returns whether the key was a shortcut and was acted on.
+    private func handleShortcut(_ event: NSEvent) -> Bool {
+        // Only keys meant for the island itself, and not while a dialog is up.
+        guard event.window === panel, NSApp.modalWindow == nil else { return false }
+        let handler = IslandShortcutHandler(model: model, openSettings: { [services] in services.showSettings() })
+        return handler.handle(KeyPress(event), isTyping: IslandKeyboard.isTyping(panel.firstResponder))
+    }
+
+    /// A click on the island (open, or closed and about to open) is the person being "in" it: it takes the keyboard.
+    private func clickedIsland(_ event: NSEvent) {
+        guard event.window === panel, !model.isFocusView, model.mode == .expanded || model.alert == nil else { return }
+        takeKeyboard()
+    }
+
+    private func takeKeyboard() {
+        guard !panel.isKeyWindow else { return }
+        activation.activateIsland()
+        panel.makeKey()
+    }
+
+    /// The island closed while it had the keyboard: the app the person was in gets it back. Not when another window of Island
+    /// (Settings, a dialog) has it, nor when the person has already gone to another app.
+    private func giveKeyboardBack() {
+        guard !model.isFocusView, panel.isKeyWindow, NSApp.isActive, let app = activation.frontmostApplication else { return }
+        activation.activate(app)
     }
 
     // MARK: Focus mode

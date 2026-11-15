@@ -97,6 +97,21 @@ ID certificate (below) and verifying that signature would be the next step.
 An ad-hoc signature also means macOS asks for Camera, Calendar and the other permissions again after each update, because the
 signature changes with every build. A Developer ID signature keeps them.
 
+**On your own Mac,** `scripts/build-app.sh` avoids that for the copy you build: it signs with your Apple Development certificate,
+whose requirement (the app id plus that certificate) stays the same from build to build, so macOS keeps the permissions. Two
+things can still make it ask again, and the script now guards against both:
+
+- **A different identity.** With more than one Apple Development certificate in the keychain (a personal and a work account), "the
+  first one" can change. `scripts/signing-identity.sh` remembers the one used last in `build/.signing-identity`, keeps using it
+  while it exists, signs by its hash, and says so on the screen if it ever has to change it. With no certificate at all the build
+  is ad hoc and the script says that every build will then ask again.
+- **A second copy.** macOS keeps one permission record per app id (`com.charvit.Island`). An installed release in /Applications
+  (ad hoc, tied to that exact build) and the build you made (tied to your certificate) share that record, so whichever is opened
+  second asks again and takes the record over. The script prints a note when such a copy exists. Use one copy: replace the other
+  with the build, or delete it.
+
+Updates from GitHub are ad hoc, so they ask again after each update until releases are signed with a stable certificate.
+
 **The same thing is why Island keeps its tokens in files, not the Keychain.** The Keychain only lets an app use an item without
 asking while the app has the same signature as the one that saved it; with an ad-hoc signature that is no longer true after
 every update, and macOS asks for the person's Mac password once per token. `FileTokenStore` (files with permissions 600 in a

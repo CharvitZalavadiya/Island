@@ -20,7 +20,15 @@ protocol AppActivating: AnyObject {
 
 @MainActor
 final class SystemAppActivation: AppActivating {
-    var frontmostApplication: NSRunningApplication? { NSWorkspace.shared.frontmostApplication }
+    private let tracker: PreviousAppTracker
+
+    init(tracker: PreviousAppTracker? = nil) { self.tracker = tracker ?? PreviousAppTracker() }
+
+    /// The app the person is working in: the one in front, or, while Island itself has the keyboard, the one it took it from.
+    var frontmostApplication: NSRunningApplication? {
+        let front = NSWorkspace.shared.frontmostApplication
+        return front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? tracker.previous : front
+    }
     func activateIsland() { NSApp.activate() }
     func activate(_ app: NSRunningApplication) { _ = app.activate(from: NSRunningApplication.current, options: []) }
 }

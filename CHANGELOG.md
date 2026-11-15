@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Keyboard shortcuts in the island.** With the island open and clicked once (a click gives it the keyboard; hovering never
+  does, so it cannot take your typing), **F** opens focus mode and leaves it, **M** switches between the usual size and Max,
+  **P** pins or unpins, and **⌘,** opens Settings. The letters only count while you are not typing into a text box or a web page,
+  and not with ⌘, ⌥, ⌃ or ⇧ held. The keyboard goes back to the app you were working in when the island closes or focus mode
+  ends.
+- **Local builds keep their permissions.** `scripts/build-app.sh` now signs every build with the same Apple Development
+  certificate (remembered in `build/.signing-identity`, signed by its hash) instead of "whichever is listed first", says out
+  loud when it has to change it (macOS asks for calendar, camera and folder permissions again for a new identity), and says
+  when another copy of Island, such as the one in /Applications, is signed differently: macOS keeps one set of permissions for
+  both, so whichever you open second asks again.
 - **Focus mode.** A new button in the tab bar (the card icon, next to Max) blurs and dims everything else on the screen and
   shows the island as a big rounded card in the middle of it, 95% of the screen wide and hanging clear below the notch (with a
   small gap, so the two never run together). Press **Esc** or click anywhere outside the card to leave, and the island is

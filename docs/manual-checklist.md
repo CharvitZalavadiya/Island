@@ -95,6 +95,19 @@ Read what the Mac is doing at any time with `pmset -g | grep SleepDisabled` (1 =
 - [ ] In focus mode, Tools ▸ Tap gestures ▸ choose an app: the file chooser opens in front of the card. In the Browser tab a page's alert (any site that shows one) also appears in front. The gear menu ▸ Settings… ends focus mode and opens Settings.
 - [ ] Max and Pin are not shown in focus mode; the card button is highlighted, and clicking it leaves too. Esc inside a text box leaves focus mode as well (that is on purpose).
 
+## Keyboard shortcuts
+
+- [ ] Open the island and press **F** without clicking it: nothing happens in Island (your keys still go to the app you are in; that is on purpose, so hovering the notch never steals your typing). Now **click** anywhere on the open island and press **F**: focus mode opens. Press **F** again: it leaves.
+- [ ] Click the island, press **M**: the island switches to Max and back with the next **M**. **P** pins it (the pin icon fills) and unpins. **⌘,** opens Settings (from focus mode too: focus mode ends first).
+- [ ] Click into a text box in the island (a task, the clipboard search, the browser's address bar) and type the word "map frog": no shortcut fires, the letters are typed. **⌘,** still opens Settings from inside a text box. In the Browser tab, click into the page and type: the letters go to the page.
+- [ ] Click the island, then move the pointer away and wait for it to close: your other app has the keyboard again (type a letter and it lands there, with no click needed). Do the same with Settings open and in front: the island closing must not pull the keyboard away from the Settings window.
+- [ ] M and P do nothing in focus mode (the buttons are not there). Holding F down toggles only once.
+
+## Permissions across rebuilds
+
+- [ ] Quit Island, run `scripts/build-app.sh` and open the new build: the line at the end says which certificate signed it, and macOS does not ask again for Calendar, Camera or folders you already allowed. Do it a second time: the same certificate again, no new questions.
+- [ ] With another copy in /Applications that is signed differently, the script prints the note about it. Open both in turn to see the repeated questions the note warns about; then keep one copy only.
+
 ## Slide gestures (Tools tab)
 
 These need a real trackpad and your fingers, so they can only be checked by hand. The gestures are on from the start; the switch in the popup turns them off.

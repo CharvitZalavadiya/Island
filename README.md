@@ -40,6 +40,10 @@ gear menu says when an update is waiting. Versions before 1.1.0 cannot update th
 - **Focus mode** (the button with the card, next to Max) blurs everything else on the screen and shows the island as a big
   card in the middle of it, 95% of the screen wide and hanging just below the notch. **Esc** or a click anywhere outside the card ends it, and
   the island is as it was before.
+- **Keyboard shortcuts.** Click the open island once (that is what gives it the keyboard; hovering never does, so it cannot
+  take your typing) and then **F** opens focus mode (and leaves it), **M** switches between the usual size and Max, **P** pins
+  or unpins, and **⌘,** opens Settings. The letters only count while you are not typing into a text box or a web page, and the
+  keyboard goes back to the app you were in when the island closes.
 - While it is closed, small **wings** beside the notch show what is live: the timer, keep-awake, music playing, a Focus mode.
 
 ## What is in it
@@ -103,7 +107,11 @@ scripts/release.sh          # dist/Island-<version>.dmg, universal (Apple Silico
 ```
 
 How releases are made (build on `dev`; merging a pull request into `main` publishes one when the version in `Sources/IslandCore/Version.swift` is new) and
-how signing and notarizing work are in [docs/distribution.md](docs/distribution.md). To try how Island looks on
+how signing and notarizing work are in [docs/distribution.md](docs/distribution.md). macOS remembers the permissions you give
+Island (calendar, camera, folders) by who signed the app, so `scripts/build-app.sh` signs every build with the same
+Apple Development certificate (it remembers which in `build/.signing-identity`) and tells you if another copy of Island, like
+one in /Applications, is signed differently: macOS keeps one set of permissions for both, so whichever you open second asks
+again. To try how Island looks on
 a Mac without a notch, start the built app with `--simulate-no-notch`.
 
 ## License

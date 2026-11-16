@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.5.0
 
 - **App lock (Tools tab).** Choose apps that must ask for Touch ID or a password every time they are opened: a new *App lock*
   tile in the Tools tab opens its settings (the tool's colour is lime). Choose a password (at least four characters; only a salted,

@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.5.0
+
+- **App lock (Tools tab).** Choose apps that must ask for Touch ID or a password every time they are opened: a new *App lock*
+  tile in the Tools tab opens its settings (the tool's colour is lime). Choose a password (at least four characters; only a salted,
+  slow hash of it is kept, in Island's private data folder, never the password itself), turn the lock on, and add apps from
+  the list of those running or with *Other app…*. When a locked app comes to the front, a cover appears over the screen it is on
+  (over every screen if Island cannot tell which), asking for Touch ID at once and offering a password box; the right one opens the
+  app. *Ask again* chooses how soon it asks once you have left the app: every time, after 1, 5 or 15 minutes away, or only
+  after the app quits; the Mac sleeping or locking always makes every app ask again. Changing anything in the settings while the
+  lock is on needs Touch ID or the password first, and asks again each time the settings are closed; after five wrong tries it
+  makes you wait (5, then 10, 20, 40 and at most 80 seconds).
+  **It can never lock you out.** The lock is only that cover, a window Island owns: if Island quits or crashes, it is gone at
+  once and every app opens freely. Island never freezes, quits or changes a locked app, and nothing keeps running after Island.
+  The cover is there only while the locked app is in front: going to any other app (⌘Tab, the Dock, Force Quit), pressing Esc,
+  *Not now* (which hides the app, like ⌘H), or the app quitting takes it away, and it stays below the Dock and the menu bar.
+  It has its own **Quit Island** button, the Mac's own login password always works (*Use Mac password*, also the way to
+  reset a forgotten lock password), and if the password file is missing or damaged the lock simply does nothing.
+  What it is not: a security boundary. It only covers an app when it comes to the front, so a locked app's window already
+  open beside another app stays visible until you click it; the app may show for a split second before the cover; and anyone
+  who can quit Island can open every app. Finder and Island itself cannot be locked.
+- **Keyboard light on the trackpad's top edge.** Sliding one finger along the top edge of the trackpad now changes the
+  brightness of the keyboard's backlight (right is brighter, left is dimmer), with the same small indicator under the notch as the
+  volume. It is a new choice for every edge in *Slide gestures* (*Keyboard*, beside *Volume*, *Brightness* and *Skip*), and the top
+  edge starts as the keyboard light; Skip, which the top edge used to start as, is still a choice for any edge. Anyone who had
+  chosen an action for an edge keeps it, so to get the keyboard light on a top edge you set to Skip, pick *Keyboard* there once.
+  The five choices are laid out three to a row so none of their names is cut short. It needs a Mac with a backlit keyboard (the
+  indicator says so if there is none), and uses a private macOS library, like the screen brightness does. The app only listens
+  to the music player while an edge is set to Skip, so by default it no longer does.
+
 ## 1.4.0
 
 - **The changed files of a pull request, in Max and focus mode.** Open a pull request for review in the GitHub tab and, when the

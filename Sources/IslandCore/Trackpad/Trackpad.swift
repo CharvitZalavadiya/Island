@@ -1,7 +1,7 @@
 import Foundation
 
-// Edge gestures on the trackpad: sliding one finger along an edge changes the volume, the brightness, or moves through what is
-// playing. This file is only the thinking (where a finger is, whether it is a gesture, how far it went); reading the trackpad and
+// Edge gestures on the trackpad: sliding one finger along an edge changes the volume, the screen's brightness, the keyboard's
+// backlight, or moves through what is playing. This file is only the thinking (where a finger is, whether it is a gesture, how far it went); reading the trackpad and
 // changing the volume are done elsewhere (Sources/IslandUI/Trackpad), so all of this can be tried with made-up touches.
 
 /// One of the four edges of the trackpad.
@@ -23,13 +23,14 @@ public enum TrackpadEdge: String, CaseIterable, Codable, Sendable {
 
 /// What sliding along an edge does.
 public enum TrackpadAction: String, CaseIterable, Codable, Sendable {
-    case off, volume, brightness, seek
+    case off, volume, brightness, keyboardBrightness, seek
 
     public var title: String {
         switch self {
         case .off: "Off"
         case .volume: "Volume"
         case .brightness: "Brightness"
+        case .keyboardBrightness: "Keyboard"
         case .seek: "Skip"
         }
     }
@@ -39,15 +40,17 @@ public enum TrackpadAction: String, CaseIterable, Codable, Sendable {
         case .off: "slash.circle"
         case .volume: "speaker.wave.2.fill"
         case .brightness: "sun.max.fill"
+        case .keyboardBrightness: "light.max"
         case .seek: "forward.fill"
         }
     }
 }
 
 public enum TrackpadDefaults {
-    /// Right edge: volume. Left edge: brightness. Top edge: move through what is playing. The bottom edge is where a thumb
-    /// rests and where the pad is pressed to click, so it starts switched off.
-    public static let actions: [TrackpadEdge: TrackpadAction] = [.right: .volume, .left: .brightness, .top: .seek, .bottom: .off]
+    /// Right edge: volume. Left edge: the screen's brightness. Top edge: the keyboard's backlight. The bottom edge is where a thumb
+    /// rests and where the pad is pressed to click, so it starts switched off. (Skipping through what is playing is still a choice
+    /// for any edge; it was the top edge's until the keyboard light took its place.)
+    public static let actions: [TrackpadEdge: TrackpadAction] = [.right: .volume, .left: .brightness, .top: .keyboardBrightness, .bottom: .off]
     public static let edgeMM = 9.0
     public static let edgeMMRange = 4.0...20.0
     public static let sensitivity = 1.0

@@ -9,6 +9,7 @@ extension TrackpadAction {
         case .off: Color.white.opacity(0.35)
         case .volume: IslandTheme.volume
         case .brightness: IslandTheme.keepAwake
+        case .keyboardBrightness: IslandTheme.focus
         case .seek: IslandTheme.tools
         }
     }
@@ -70,7 +71,8 @@ private struct SlidePage: View {
                 }
             }
             .frame(height: 18)
-            HStack(spacing: 5) {
+            // Equal-width pills, three to a row: five of them do not fit on one line without cutting their names short.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 3), spacing: 5) {
                 ForEach(TrackpadAction.allCases, id: \.self) { choice in
                     ChoicePill(title: choice.title, symbol: choice.symbol, tint: choice.tint, isSelected: choice == action) {
                         controller.setAction(choice, for: selected)
@@ -111,9 +113,13 @@ private struct SlidePage: View {
         guard action != .off else { return "Sliding along this edge does nothing." }
         let (forward, back) = edge.runsUpAndDown ? ("up", "down") : ("right", "left")
         let (a, b) = reversed ? (back, forward) : (forward, back)
-        let more = action == .seek ? "skips ahead" : "goes up"
-        let less = action == .seek ? "goes back" : "goes down"
-        let note = action == .seek ? " Needs a song or video playing that can be skipped through." : ""
+        let more = action == .seek ? "skips ahead" : action == .keyboardBrightness ? "gets brighter" : "goes up"
+        let less = action == .seek ? "goes back" : action == .keyboardBrightness ? "gets dimmer" : "goes down"
+        let note: String = switch action {
+        case .seek: " Needs a song or video playing that can be skipped through."
+        case .keyboardBrightness: " The light under the keys of this Mac's own keyboard."
+        default: ""
+        }
         return "Slide \(a) and it \(more); \(b) and it \(less).\(note)"
     }
 
@@ -144,6 +150,7 @@ private struct ChoicePill: View {
                 Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1)
             }
             .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity)
             .frame(height: 24)
             .background(isSelected ? tint : tint.opacity(0.16), in: Capsule())
             .foregroundStyle(isSelected ? Color.black : tint)

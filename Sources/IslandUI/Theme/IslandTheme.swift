@@ -43,6 +43,8 @@ enum IslandTheme {
     static let trackpadSlide = Color(hex: 0xF0ABFC)
     /// The Tap gestures tool (Tools tab).
     static let trackpadTaps = Color(hex: 0x38BDF8)
+    /// The App lock tool (Tools tab).
+    static let appLock = Color(hex: 0xA3E635)
 
     static let accent = Color(hex: 0x22D3EE)
     static let accentSoft = accent.opacity(0.25)

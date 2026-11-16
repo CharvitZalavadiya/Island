@@ -8,6 +8,7 @@ struct ToolsTab: View {
     @Bindable var controller: ToolsController
     let nowPlaying: NowPlayingController
     let trackpad: TrackpadController
+    let appLock: AppLockController
     let settings: SettingsStore
     /// The tool the pointer is over, so its name can be shown (the tiles are too small to carry one).
     @State private var hovered: ToolHint?
@@ -80,6 +81,7 @@ struct ToolsTab: View {
         switch tool {
         case .trackpadSlide: trackpad.isEnabled
         case .trackpadTaps: trackpad.isTapsEnabled
+        case .appLock: appLock.isEnabled
         }
     }
 
@@ -100,6 +102,13 @@ struct ToolsTab: View {
                 isOn: Binding(get: { trackpad.isTapsEnabled }, set: { trackpad.setTapsEnabled($0) }), onClose: { popup = nil }
             ) {
                 TrackpadTapSettings(controller: trackpad, settings: settings)
+            }
+        case .appLock:
+            ToolPopup(
+                title: tool.title, symbol: tool.symbol, tint: tool.tint,
+                isOn: Binding(get: { appLock.isEnabled }, set: { appLock.setEnabled($0) }), onClose: { popup = nil }
+            ) {
+                AppLockSettings(controller: appLock)
             }
         }
     }
@@ -140,12 +149,13 @@ struct ToolsTab: View {
 /// The tools that open a popup of settings over the Tools tab, each with a tile of its own. To add one: add a case here, say what
 /// it is called, looks like and does in the properties, and build its settings inside a `ToolPopup` in `popupCard(for:)`.
 enum PopupTool: String, CaseIterable {
-    case trackpadSlide, trackpadTaps
+    case trackpadSlide, trackpadTaps, appLock
 
     var title: String {
         switch self {
         case .trackpadSlide: "Slide gestures"
         case .trackpadTaps: "Tap gestures"
+        case .appLock: "App lock"
         }
     }
 
@@ -153,6 +163,7 @@ enum PopupTool: String, CaseIterable {
         switch self {
         case .trackpadSlide: "rectangle.and.hand.point.up.left"
         case .trackpadTaps: "hand.tap"
+        case .appLock: "lock.app.dashed"
         }
     }
 
@@ -161,6 +172,7 @@ enum PopupTool: String, CaseIterable {
         switch self {
         case .trackpadSlide: IslandTheme.trackpadSlide
         case .trackpadTaps: IslandTheme.trackpadTaps
+        case .appLock: IslandTheme.appLock
         }
     }
 
@@ -168,11 +180,14 @@ enum PopupTool: String, CaseIterable {
     func detail(isOn: Bool) -> String {
         switch self {
         case .trackpadSlide:
-            isOn ? "On. Slide a finger along the trackpad's edge to change volume or brightness. Click to change it."
-                : "Off. Click to set up sliding along the trackpad's edge for volume, brightness and skipping."
+            isOn ? "On. Slide a finger along the trackpad's edge to change volume, brightness or the keyboard light. Click to change it."
+                : "Off. Click to set up sliding along the trackpad's edge for volume, brightness, the keyboard light and skipping."
         case .trackpadTaps:
             isOn ? "On. Tap with three or four fingers, twice or three times. Click to choose what each tap does."
                 : "Off. Click to set up taps with three or four fingers: copy, paste, screenshot, open an app and more."
+        case .appLock:
+            isOn ? "On. The apps you chose ask for Touch ID or your password when you open them. Click to change it."
+                : "Off. Click to make chosen apps ask for Touch ID or a password when you open them."
         }
     }
 }

@@ -230,7 +230,7 @@ private struct Pad {
     let settings = Settings()
     #expect(settings.trackpadEnabled)
     #expect(settings.trackpadAction(for: .right) == .volume && settings.trackpadAction(for: .left) == .brightness)
-    #expect(settings.trackpadAction(for: .top) == .seek && settings.trackpadAction(for: .bottom) == .off)
+    #expect(settings.trackpadAction(for: .top) == .keyboardBrightness && settings.trackpadAction(for: .bottom) == .off)
     #expect(settings.trackpadActiveEdges == [.right, .left, .top])
     #expect(!TrackpadEdge.allCases.contains { settings.trackpadIsReversed($0) })
     #expect(settings.trackpadEdgeMM == 9 && settings.trackpadSensitivity == 1)
@@ -246,7 +246,7 @@ private struct Pad {
     #expect(back == settings && !back.trackpadEnabled)
     #expect(back.trackpadAction(for: .right) == .brightness && back.trackpadAction(for: .left) == .volume)
     #expect(back.trackpadAction(for: .bottom) == .seek)
-    #expect(back.trackpadAction(for: .top) == .seek)                         // "nonsense" means the default for the top edge
+    #expect(back.trackpadAction(for: .top) == .keyboardBrightness)           // "nonsense" means the default for the top edge
     #expect(back.trackpadIsReversed(.left) && !back.trackpadIsReversed(.right))
 }
 
@@ -255,4 +255,35 @@ private struct Pad {
     #expect(old.trackpadEnabled && old.focusMinutes == 40 && old.trackpadActiveEdges == [.right, .left, .top])
     let wild = try JSONDecoder().decode(Settings.self, from: Data(#"{"trackpadEdgeMM":500,"trackpadSensitivity":0}"#.utf8))
     #expect(wild.trackpadEdgeMM == 20 && wild.trackpadSensitivity == 0.4)
+}
+
+// MARK: The keyboard light
+
+@Test func everyEdgeActionHasItsOwnNameAndSymbolAndTheKeyboardLightIsSavedByName() {
+    #expect(TrackpadAction.allCases == [.off, .volume, .brightness, .keyboardBrightness, .seek])
+    #expect(Set(TrackpadAction.allCases.map(\.title)).count == 5 && Set(TrackpadAction.allCases.map(\.symbol)).count == 5)
+    #expect(TrackpadAction.allCases.allSatisfy { !$0.title.isEmpty && !$0.symbol.isEmpty })
+    #expect(TrackpadAction.keyboardBrightness.rawValue == "keyboardBrightness")
+    #expect(TrackpadAction.keyboardBrightness.title == "Keyboard" && TrackpadAction.keyboardBrightness.symbol == "light.max")
+}
+
+@Test func theTopEdgeStartsAsTheKeyboardLightButAnythingAPersonChoseIsKept() throws {
+    #expect(TrackpadDefaults.actions[.top] == .keyboardBrightness)
+    #expect(Settings().trackpadActiveEdges == [.right, .left, .top])
+    // Someone who had chosen Skip for the top edge (their own choice, saved) still has Skip: only the default changed.
+    let chosen = try JSONDecoder().decode(Settings.self, from: Data(#"{"trackpadActions":{"top":"seek","bottom":"seek"}}"#.utf8))
+    #expect(chosen.trackpadAction(for: .top) == .seek && chosen.trackpadAction(for: .bottom) == .seek)
+    // An old file that never mentioned the top edge gets the new default; one that names the keyboard light gets it.
+    let old = try JSONDecoder().decode(Settings.self, from: Data(#"{"trackpadActions":{"right":"brightness"}}"#.utf8))
+    #expect(old.trackpadAction(for: .top) == .keyboardBrightness && old.trackpadAction(for: .right) == .brightness)
+    let named = try JSONDecoder().decode(Settings.self, from: Data(#"{"trackpadActions":{"left":"keyboardBrightness"}}"#.utf8))
+    #expect(named.trackpadAction(for: .left) == .keyboardBrightness)
+}
+
+@Test func skipIsStillAChoiceForAnyEdge() {
+    var settings = Settings()
+    settings.trackpadActions["top"] = "seek"
+    settings.trackpadActions["bottom"] = "seek"
+    #expect(settings.trackpadAction(for: .top) == .seek && settings.trackpadAction(for: .bottom) == .seek)
+    #expect(settings.trackpadActiveEdges == [.right, .left, .top, .bottom])
 }

@@ -5,6 +5,9 @@ import AppKit
 enum IslandWindowLevel {
     static let island = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
     static let dialog = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+    /// App lock's cover: above the app it hides, but BELOW the Dock and the menu bar, so the person can always click another
+    /// app's icon, or reach the menu bar, to leave it.
+    static let lock = NSWindow.Level(rawValue: NSWindow.Level.modalPanel.rawValue + 1)
 }
 
 /// What focus mode asks of the Mac's app switching, so it can be tried without really switching apps.

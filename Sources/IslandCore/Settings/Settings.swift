@@ -29,7 +29,7 @@ public struct Settings: Codable, Equatable {
     /// on the pointer is held still.
     public var trackpadEnabled = true
     /// What sliding one finger along each edge does, by edge name ("left", "right", "top", "bottom") to action name ("off",
-    /// "volume", "brightness", "seek"). An edge that is missing or has an unknown action keeps its default.
+    /// "volume", "brightness", "keyboardBrightness", "seek"). An edge that is missing or has an unknown action keeps its default.
     public var trackpadActions: [String: String] = [:]
     /// The edges whose direction is turned round (names, as above).
     public var trackpadReversedEdges: [String] = []

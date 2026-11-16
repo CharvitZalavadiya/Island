@@ -1,5 +1,7 @@
+import AppKit
 import CoreGraphics
 import Foundation
+import SwiftUI
 import Testing
 import IslandCore
 @testable import IslandUI
@@ -51,6 +53,15 @@ private final class FakeBrightness: BrightnessControlling {
     func set(_ value: Float) { level = value; sets.append(value) }
 }
 
+private final class FakeKeyboard: KeyboardBacklightControlling {
+    var level: Float? = 0.3
+    private(set) var reads = 0
+    /// Every level it was asked for, and whether that was the end of a slide.
+    private(set) var sets: [(value: Float, final: Bool)] = []
+    func current() -> Float? { reads += 1; return level }
+    func set(_ value: Float, final: Bool) { level = value; sets.append((value, final)) }
+}
+
 @MainActor private final class FakeSeeker: TrackSeeking {
     var state: (elapsed: TimeInterval, duration: TimeInterval?)? = (100, 300)
     private(set) var listening: [Bool] = []
@@ -72,6 +83,7 @@ private final class FakeBrightness: BrightnessControlling {
     let freeze = FakeFreeze()
     let audio = FakeAudio()
     let brightness = FakeBrightness()
+    let keyboard = FakeKeyboard()
     let seeker = FakeSeeker()
     let feedback = FakeFeedback()
     let clock = Clock()
@@ -88,7 +100,7 @@ private final class FakeBrightness: BrightnessControlling {
             readCursor: { CGPoint(x: 640, y: 300) }, clock: { clock.time })
         controller = TrackpadController(
             settings: settings, seeker: seeker, source: source, freeze: freeze, system: audio, brightness: brightness,
-            feedback: feedback, pipeline: pipeline, now: { clock.time })
+            keyboardBacklight: keyboard, feedback: feedback, pipeline: pipeline, now: { clock.time })
     }
 
     /// One whole gesture on an edge: it begins, the finger moves along it by `fraction` of its length (in two steps), it lifts.
@@ -169,10 +181,111 @@ private final class FakeBrightness: BrightnessControlling {
     #expect(rig.feedback.shown.map(\.text) == ["This sound output has no volume control", "The brightness of this screen can't be changed"])
 }
 
+// MARK: The keyboard light
+
+@Test @MainActor func slidingAlongTheTopEdgeChangesTheKeyboardLightAndNothingElse() {
+    let rig = Rig()
+    rig.keyboard.level = 0.3
+    rig.slide(.top, 0.4)
+    #expect(abs(Double(rig.keyboard.level ?? 0) - 0.7) < 1e-6)
+    #expect(rig.feedback.shown.last?.text == "70%" && rig.feedback.shown.last?.symbol == "light.max")
+    #expect(rig.feedback.shown.last?.fraction.map { abs($0 - 0.7) < 1e-6 } == true)
+    #expect(rig.brightness.sets.isEmpty && rig.audio.sets.isEmpty && rig.seeker.seeks.isEmpty)      // not the screen, not the sound
+}
+
+@Test @MainActor func theKeyboardLightStopsAtOffAndAtFullAndShowsTheDimSymbolWhenOff() {
+    let rig = Rig()
+    rig.keyboard.level = 0.3
+    rig.slide(.top, -2)
+    #expect(rig.keyboard.level == 0 && rig.feedback.shown.last?.symbol == "light.min" && rig.feedback.shown.last?.text == "0%")
+    rig.slide(.top, 5)
+    #expect(rig.keyboard.level == 1 && rig.feedback.shown.last?.symbol == "light.max")
+}
+
+@Test @MainActor func theKeyboardLightIsKeptOnlyWhenTheSlideEndsLikeASliderLetGo() {
+    let rig = Rig()
+    rig.controller.apply(.began(.top))
+    for _ in 0..<5 {
+        rig.clock.time += 0.05
+        rig.controller.apply(.moved(.top, delta: 0.05))
+    }
+    #expect(!rig.keyboard.sets.isEmpty && rig.keyboard.sets.allSatisfy { !$0.final })                // while the finger moves: not final
+    rig.controller.apply(.ended(.top))
+    #expect(rig.keyboard.sets.last?.final == true && rig.keyboard.sets.filter(\.final).count == 1)    // once, at the end
+    #expect(rig.keyboard.sets.last.map { abs(Double($0.value) - 0.55) < 1e-6 } == true)               // at the level it reached
+}
+
+@Test @MainActor func aSlideThatIsCancelledStillKeepsWhereTheLightGotTo() {
+    let rig = Rig()
+    rig.controller.apply(.began(.top))
+    rig.clock.time += 0.05
+    rig.controller.apply(.moved(.top, delta: 0.1))
+    rig.controller.apply(.cancelled(.top))                                                           // a second finger came down
+    #expect(rig.keyboard.sets.last?.final == true)
+}
+
+@Test @MainActor func theKeyboardIsOnlyReadWhenASlideBeginsAndNotWhileTheGestureIsOff() {
+    let rig = Rig()
+    #expect(rig.keyboard.reads == 0)
+    rig.slide(.top, 0.1)
+    #expect(rig.keyboard.reads == 1)
+    rig.slide(.top, 0.1)
+    #expect(rig.keyboard.reads == 2)
+    let off = Rig(enabled: false)
+    off.slide(.top, 0.5)
+    #expect(off.keyboard.reads == 0 && off.keyboard.sets.isEmpty)
+}
+
+@Test @MainActor func aMacWithNoKeyboardBacklightSaysSoOnceAndChangesNothing() {
+    let rig = Rig()
+    rig.keyboard.level = nil
+    rig.slide(.top, 0.5)
+    rig.slide(.top, 0.5)
+    #expect(rig.keyboard.sets.isEmpty)
+    #expect(rig.feedback.shown.map(\.text) == ["This Mac's keyboard has no backlight to change"])
+}
+
+@Test @MainActor func theKeyboardLightCanBeGivenToAnotherEdgeAndSkipBackToTheTop() {
+    let rig = Rig(tweak: { $0.trackpadActions = ["left": "keyboardBrightness", "top": "seek"] })
+    rig.slide(.left, 0.2)
+    #expect(abs(Double(rig.keyboard.level ?? 0) - 0.5) < 1e-6 && rig.brightness.sets.isEmpty)          // the left edge no longer moves the screen
+    let afterLeft = rig.keyboard.sets.count
+    rig.slide(.top, 0.5)
+    #expect(rig.seeker.seeks.last == 160)
+    #expect(rig.keyboard.sets.count == afterLeft)                                                      // and the top edge left the light alone
+}
+
+@Test @MainActor func reversingAndTheSpeedApplyToTheKeyboardLightToo() {
+    let rig = Rig(tweak: {
+        $0.trackpadReversedEdges = ["top"]
+        $0.trackpadSensitivity = 2
+    })
+    rig.keyboard.level = 0.6
+    rig.slide(.top, 0.1)                                                     // right, but reversed, and twice as far
+    #expect(abs(Double(rig.keyboard.level ?? 0) - 0.4) < 1e-6)
+}
+
+// MARK: The settings popup
+
+@Test @MainActor func theSlideGesturesPopupStillFitsTheUsualToolsTabWithFiveChoicesForAnEdge() {
+    // The usual island's Tools tab gives a popup about 556 x 232 points. Each edge has five choices now, laid out three to a row.
+    let usualToolsTab = CGSize(width: 556, height: 232)
+    for action in ["keyboardBrightness", "seek", "off", "volume"] {                 // the hints differ in length
+        let rig = Rig(tweak: { $0.trackpadActions = ["right": action] })
+        let popup = ToolPopup(title: "Slide gestures", symbol: "hand.draw", tint: .pink, isOn: .constant(true), onClose: {}) {
+            TrackpadSlideSettings(controller: rig.controller, settings: rig.settings)
+        }
+        .frame(width: usualToolsTab.width)
+        let natural = NSHostingView(rootView: popup).fittingSize
+        #expect(natural.height <= usualToolsTab.height, "\(action): \(natural.height) pt tall")
+        #expect(natural.height > 150, "\(action): measured a real popup, not an empty one")
+    }
+}
+
 // MARK: Moving through what is playing
 
-@Test @MainActor func slidingAlongTheTopEdgeSkipsThroughWhatIsPlayingAndLetsGoAtTheEnd() {
-    let rig = Rig()
+@Test @MainActor func slidingAlongAnEdgeSetToSkipMovesThroughWhatIsPlayingAndLetsGoAtTheEnd() {
+    let rig = Rig(tweak: { $0.trackpadActions["top"] = "seek" })              // Skip is a choice now; the top edge starts as the keyboard light
     rig.seeker.state = (100, 300)
     rig.slide(.top, 0.5)                                                     // half the edge = 60 s
     #expect(rig.seeker.seeks.last == 160)
@@ -180,7 +293,7 @@ private final class FakeBrightness: BrightnessControlling {
 }
 
 @Test @MainActor func skippingBackGoesBackAndNeverPastTheStartOrTheEnd() {
-    let rig = Rig(tweak: { $0.trackpadActions["bottom"] = "seek" })
+    let rig = Rig(tweak: { $0.trackpadActions = ["top": "seek", "bottom": "seek"] })
     rig.seeker.state = (100, 300)
     rig.slide(.top, -2)
     #expect(rig.seeker.seeks.last == 0 && rig.feedback.shown.last?.symbol == "backward.fill")
@@ -189,7 +302,7 @@ private final class FakeBrightness: BrightnessControlling {
 }
 
 @Test @MainActor func whileSlidingTheSongIsMovedNowAndThenNotWithEveryTinyStep() {
-    let rig = Rig()
+    let rig = Rig(tweak: { $0.trackpadActions["top"] = "seek" })
     rig.controller.apply(.began(.top))
     for _ in 0..<50 {
         rig.clock.time += 0.02                                               // a second of fifty small steps
@@ -202,7 +315,7 @@ private final class FakeBrightness: BrightnessControlling {
 }
 
 @Test @MainActor func skippingWithNothingPlayingSaysSoOnceAndMovesNothing() {
-    let rig = Rig()
+    let rig = Rig(tweak: { $0.trackpadActions["top"] = "seek" })
     rig.seeker.state = nil
     rig.slide(.top, 0.5)
     rig.slide(.top, 0.5)
@@ -263,7 +376,9 @@ private final class FakeBrightness: BrightnessControlling {
     rig.controller.start()
     #expect(rig.seeker.listening.last == false)
     rig.controller.setEnabled(true)
-    #expect(rig.seeker.listening.last == true)                              // the top edge skips by default
+    #expect(rig.seeker.listening.last == false)                             // no edge skips by default (the top one is the keyboard light)
+    rig.controller.setAction(.seek, for: .top)
+    #expect(rig.seeker.listening.last == true)
     rig.controller.setAction(.off, for: .top)
     #expect(rig.seeker.listening.last == false)
     rig.controller.setAction(.seek, for: .bottom)

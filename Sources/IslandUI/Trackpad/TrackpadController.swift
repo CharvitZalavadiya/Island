@@ -58,6 +58,7 @@ final class TrackpadController {
     @ObservationIgnored private let freeze: PointerFreezing
     @ObservationIgnored private let system: AudioSystem
     @ObservationIgnored private let brightness: BrightnessControlling
+    @ObservationIgnored private let keyboardBacklight: KeyboardBacklightControlling
     @ObservationIgnored private let seeker: TrackSeeking
     @ObservationIgnored private let feedback: TrackpadFeedback
     @ObservationIgnored private let runner: TrackpadActionPerforming
@@ -95,7 +96,8 @@ final class TrackpadController {
     init(
         settings: SettingsStore, seeker: TrackSeeking, source: TouchSource = MultitouchSource(),
         freeze: PointerFreezing = PointerFreeze(), system: AudioSystem = CoreAudioSystem(),
-        brightness: BrightnessControlling = DisplayServicesBrightness(), feedback: TrackpadFeedback? = nil,
+        brightness: BrightnessControlling = DisplayServicesBrightness(),
+        keyboardBacklight: KeyboardBacklightControlling = CoreBrightnessKeyboard(), feedback: TrackpadFeedback? = nil,
         runner: TrackpadActionPerforming? = nil, shortcutLister: @escaping () async -> [String] = { await ShortcutsList.load() },
         pipeline: TrackpadPipeline? = nil, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
@@ -105,6 +107,7 @@ final class TrackpadController {
         self.freeze = freeze
         self.system = system
         self.brightness = brightness
+        self.keyboardBacklight = keyboardBacklight
         self.feedback = feedback ?? TrackpadHUDController()
         self.runner = runner ?? SystemActionRunner()
         self.shortcutLister = shortcutLister
@@ -352,6 +355,9 @@ final class TrackpadController {
         case .brightness:
             guard let level = brightness.current() else { return cannot(action, "The brightness of this screen can't be changed") }
             gesture = Gesture(edge: edge, action: action, base: Double(level))
+        case .keyboardBrightness:
+            guard let level = keyboardBacklight.current() else { return cannot(action, "This Mac's keyboard has no backlight to change") }
+            gesture = Gesture(edge: edge, action: action, base: Double(level))
         case .seek:
             guard let state = seeker.seekState else { return cannot(action, "Nothing playing that can be skipped through") }
             gesture = Gesture(edge: edge, action: action, base: state.elapsed, duration: state.duration)
@@ -386,6 +392,10 @@ final class TrackpadController {
             let level = min(max(gesture.base + gesture.travelled, 0), 1)
             brightness.set(Float(level))
             feedback.show(symbol: "sun.max.fill", fraction: level, text: Self.percent(level))
+        case .keyboardBrightness:
+            let level = min(max(gesture.base + gesture.travelled, 0), 1)
+            keyboardBacklight.set(Float(level), final: final)
+            feedback.show(symbol: level == 0 ? "light.min" : "light.max", fraction: level, text: Self.percent(level))
         case .seek:
             let seconds = gesture.travelled * TrackpadDefaults.seekSecondsPerEdge
             let target = min(max(gesture.base + seconds, 0), gesture.duration ?? .greatestFiniteMagnitude)

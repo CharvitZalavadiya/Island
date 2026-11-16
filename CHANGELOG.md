@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Keyboard light on the trackpad's top edge.** Sliding one finger along the top edge of the trackpad now changes the
+  brightness of the keyboard's backlight (right is brighter, left is dimmer), with the same small indicator under the notch as the
+  volume. It is a new choice for every edge in *Slide gestures* (*Keyboard*, beside *Volume*, *Brightness* and *Skip*), and the top
+  edge starts as the keyboard light; Skip, which the top edge used to start as, is still a choice for any edge. Anyone who had
+  chosen an action for an edge keeps it, so to get the keyboard light on a top edge you set to Skip, pick *Keyboard* there once.
+  The five choices are laid out three to a row so none of their names is cut short. It needs a Mac with a backlit keyboard (the
+  indicator says so if there is none), and uses a private macOS library, like the screen brightness does. The app only listens
+  to the music player while an edge is set to Skip, so by default it no longer does.
+
 ## 1.4.0
 
 - **The changed files of a pull request, in Max and focus mode.** Open a pull request for review in the GitHub tab and, when the

@@ -168,8 +168,8 @@ enum PopupTool: String, CaseIterable {
     func detail(isOn: Bool) -> String {
         switch self {
         case .trackpadSlide:
-            isOn ? "On. Slide a finger along the trackpad's edge to change volume or brightness. Click to change it."
-                : "Off. Click to set up sliding along the trackpad's edge for volume, brightness and skipping."
+            isOn ? "On. Slide a finger along the trackpad's edge to change volume, brightness or the keyboard light. Click to change it."
+                : "Off. Click to set up sliding along the trackpad's edge for volume, brightness, the keyboard light and skipping."
         case .trackpadTaps:
             isOn ? "On. Tap with three or four fingers, twice or three times. Click to choose what each tap does."
                 : "Off. Click to set up taps with three or four fingers: copy, paste, screenshot, open an app and more."

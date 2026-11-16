@@ -33,6 +33,7 @@ public final class IslandServices {
     let tools: ToolsController
     let nowPlaying: NowPlayingController
     let trackpad: TrackpadController
+    let appLock: AppLockController
     let mediaMonitor: MediaActivityMonitor
     let cameraSession: AVCaptureSession
     let cameraPreview: PreviewView
@@ -94,6 +95,10 @@ public final class IslandServices {
         let secrets = supportDirectory.appendingPathComponent("secrets", isDirectory: true)
         todoist = TodoistController(tokens: FileTokenStore(directory: secrets, service: "todoist"))
         github = GitHubController(tokens: FileTokenStore(directory: secrets, service: "github"))
+        // App lock keeps only a salted hash of its password, in the same private folder.
+        appLock = AppLockController(
+            settings: model.settings, passwords: FileAppLockPasswordStore(tokens: FileTokenStore(directory: secrets, service: "app-lock")),
+            authenticator: SystemLockAuthenticator(), workspace: SystemAppLockWorkspace(), presenter: LockOverlay())
         teams = TeamsController(
             sessions: FileTokenStore(directory: secrets, service: "teams"), config: FileTokenStore(directory: secrets, service: "teams-app"))
         browser = BrowserController(
@@ -140,6 +145,7 @@ public final class IslandServices {
         lockSounds.start()
         mediaMonitor.start()
         trackpad.start()
+        appLock.start()
         update.startAutomaticChecks()
         startScreenshotWatcher()
     }
@@ -160,6 +166,7 @@ public final class IslandServices {
     public func willTerminate() {
         mixer.shutdown()   // every app plays at full volume again
         trackpad.shutdown()   // and the pointer follows the trackpad again
+        appLock.shutdown()    // and no cover is left over any app
         keepAwake.willTerminate()
     }
 }

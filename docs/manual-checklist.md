@@ -127,7 +127,7 @@ Read what the Mac is doing at any time with `pmset -g | grep SleepDisabled` (1 =
 
 These need a real trackpad and your fingers, so they can only be checked by hand. The gestures are on from the start; the switch in the popup turns them off.
 
-- [ ] In the Tools tab there are four tiles in a row: the colour picker, the keyboard lock, **Slide gestures** (pink-purple) and **Tap gestures** (blue). Hovering one names it and says whether it is on. Click **Slide gestures**: a card opens over the tab (the player is behind it) with a picture of the pad, and a close button at its top right. Closing it, or leaving the tab, closes it. Hovering the tile names it; its ring is full while the gestures are on.
+- [ ] In the Tools tab there are five tiles in a row: the colour picker, the keyboard lock, **Slide gestures** (pink-purple), **Tap gestures** (blue) and **App lock** (lime). Hovering one names it and says whether it is on. Click **Slide gestures**: a card opens over the tab (the player is behind it) with a picture of the pad, and a close button at its top right. Closing it, or leaving the tab, closes it. Hovering the tile names it; its ring is full while the gestures are on.
 - [ ] With the card open, touch the pad: a dot shows where your finger is. Touch the right-hand edge at the top: the dot is at the top right (if it is upside down, the pad's up and down are the wrong way round and that needs fixing). The picture has the shape of your pad.
 - [ ] With the gestures on (they are at first; switch them off and on again to check the switch), slide one finger up the right edge: the volume goes up with a small indicator under the notch, down when you slide down. The pointer stays where it was while you slide, and moves normally again the moment you lift.
 - [ ] The left edge does the same for the brightness of the built-in screen.
@@ -138,6 +138,23 @@ These need a real trackpad and your fingers, so they can only be checked by hand
 - [ ] Click another edge in the picture, give it another job (or Off), reverse its direction, change the width and the speed: each takes effect straight away and is still there after quitting and opening Island.
 - [ ] With the gestures on, quit Island in the middle of a slide (or switch them off): the pointer is free again.
 - [ ] If macOS asks for a permission the first time (Input Monitoring or Accessibility), note what it asked for: the card says so if the pad cannot be read.
+
+## App lock (Tools tab)
+
+Needs a real Mac with Touch ID if you want to try the finger. Use an app you do not mind covering (Notes, Calculator, TextEdit),
+and know the way out first: **Quit Island** is on the cover itself, and quitting Island from the island's menu also ends the lock.
+
+- [ ] Click the lime **App lock** tile: the card asks for a password first (two boxes, "Save and turn on"). Try a three-letter one ("Use at least 4 characters"), two different ones ("not the same"), then a good one: the lock turns on (the switch in the header says On) and the card shows the empty list.
+- [ ] **Add app** lists the running apps (not Finder, not Island) and **Other app…** opens a file chooser in front of the island. Add Notes: it shows with its icon and a small ✕. Adding an app you are using right now does NOT cover it at once.
+- [ ] Switch to another app, then open Notes (click it, ⌘Tab or Spotlight): a dark cover appears over the screen Notes is on (the screen under Notes' window; other screens stay usable), with Notes' icon, "Notes is locked", a password box with the cursor in it, and the Touch ID prompt right away. Touch the sensor: Notes opens, in front. The Touch ID dialog's own "Use password" button leaves the password box.
+- [ ] Type a wrong password: "That is not the password." and the cover stays. Five wrong ones make you wait (5 s, then longer). The right one opens Notes.
+- [ ] Open Notes, go to another app, come back: it asks again (**Ask again: every time**). Change it to 1 minute: coming back within a minute does not ask, after more than a minute it does. "Only after the app quits": it asks again only after Notes is quit and opened again.
+- [ ] **The ways out.** With the cover up: ⌘Tab to another app, click another app's Dock icon, or press ⌘⌥Esc: the cover goes at once, and Notes is hidden (come back to it from the Dock: it asks). Esc, or **Not now**: same, and you land in the app you were in before. **Use Mac password**: macOS asks for your login password (or Touch ID) and Notes opens. **Quit Island** quits Island; the cover goes with it and Notes opens freely.
+- [ ] Force-quit Island (Activity Monitor) while the cover is up: the cover disappears and Notes is usable. Nothing is left frozen or hidden except what Not now hid.
+- [ ] With the lock on, close the App lock card and open it again: it asks for the password (or Touch ID, or the Mac password) before showing anything. The header switch cannot be turned off, and apps cannot be removed, until then. After unlocking: remove Notes, change the password (the old one stops working), switch Touch ID off, switch the whole lock off, and on again.
+- [ ] Quit Island, open Notes: no cover, no password. Open Island again with Notes in front: it is covered at once. Close the lid or lock the screen and come back: every locked app asks again.
+- [ ] With Notes in full screen (its own Space), switch to it: the cover shows over it. Try two screens: the cover is on the screen with Notes' window, with the box there.
+- [ ] Delete `~/Library/Application Support/Island/secrets/app-lock` while Island runs (or put rubbish in it): the lock stops covering anything (the card says to choose a password); Island does not hang.
 
 ## Tap gestures (Tools tab)
 

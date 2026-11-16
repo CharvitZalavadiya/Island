@@ -46,6 +46,16 @@ public struct Settings: Codable, Equatable {
     public var trackpadTapApps: [String: String] = [:]
     /// For the "run a Shortcut" action: the Shortcut's name, by tap.
     public var trackpadTapShortcuts: [String: String] = [:]
+    /// App lock (the Tools tab): the apps in `appLockApps` ask for Touch ID or the password when they are opened. It only works while
+    /// Island runs: quitting Island ends it. Off from the start, and it cannot be turned on until a password is set.
+    public var appLockEnabled = false
+    /// The apps it guards, by bundle identifier, and the names to show for them (the app may not be installed any more).
+    public var appLockApps: [String] = []
+    public var appLockNames: [String: String] = [:]
+    /// When an app asks again after it was opened ("everyTime", "oneMinute", "fiveMinutes", "fifteenMinutes", "whenAppQuits").
+    public var appLockRelock = AppLockRelock.everyTime.rawValue
+    /// Touch ID is tried first, where this Mac has it.
+    public var appLockTouchID = true
     /// Which tasks the Tasks tab shows: "local" (Island's own list) or "todoist".
     public var tasksSource = "local"
     /// Island looks for a newer version on GitHub now and then (at most about once a day) and says so in Settings.
@@ -65,6 +75,7 @@ public struct Settings: Codable, Equatable {
         case mediaInMinimalView, tasksSource, checkForUpdates, lastUpdateCheck
         case trackpadEnabled, trackpadActions, trackpadReversedEdges, trackpadEdgeMM, trackpadSensitivity
         case trackpadTapsEnabled, trackpadTapActions, trackpadTapApps, trackpadTapShortcuts
+        case appLockEnabled, appLockApps, appLockNames, appLockRelock, appLockTouchID
     }
 
     /// Every key is optional, so a settings file written by an older Island (which had fewer keys) keeps the user's
@@ -107,12 +118,20 @@ public struct Settings: Codable, Equatable {
         trackpadTapActions = try values.decodeIfPresent([String: String].self, forKey: .trackpadTapActions) ?? trackpadTapActions
         trackpadTapApps = try values.decodeIfPresent([String: String].self, forKey: .trackpadTapApps) ?? trackpadTapApps
         trackpadTapShortcuts = try values.decodeIfPresent([String: String].self, forKey: .trackpadTapShortcuts) ?? trackpadTapShortcuts
+        appLockEnabled = try values.decodeIfPresent(Bool.self, forKey: .appLockEnabled) ?? appLockEnabled
+        appLockApps = try values.decodeIfPresent([String].self, forKey: .appLockApps) ?? appLockApps
+        appLockNames = try values.decodeIfPresent([String: String].self, forKey: .appLockNames) ?? appLockNames
+        appLockRelock = try values.decodeIfPresent(String.self, forKey: .appLockRelock) ?? appLockRelock
+        appLockTouchID = try values.decodeIfPresent(Bool.self, forKey: .appLockTouchID) ?? appLockTouchID
     }
 
     /// What sliding along `edge` does: the saved choice, or the default for that edge.
     public func trackpadAction(for edge: TrackpadEdge) -> TrackpadAction {
         trackpadActions[edge.rawValue].flatMap(TrackpadAction.init(rawValue:)) ?? TrackpadDefaults.actions[edge] ?? .off
     }
+
+    /// When a locked app asks again: the saved choice, or every time (an unknown name is every time too: the safe way round).
+    public var appLockRelockChoice: AppLockRelock { AppLockRelock(rawValue: appLockRelock) ?? .everyTime }
 
     public func trackpadIsReversed(_ edge: TrackpadEdge) -> Bool { trackpadReversedEdges.contains(edge.rawValue) }
 
